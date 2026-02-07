@@ -1,0 +1,18 @@
+<additional>
+  <vTypeDistribution id="mixed">
+    <vType id="car_m"
+           vClass="passenger"
+           accel="2.6" decel="4.5" length="5" maxSpeed="13.9"
+           probability="0.98"
+           color="0,0,1"
+           guiShape="passenger"/>
+
+    <vType id="emergency_m"
+           vClass="emergency"
+           accel="3.0" decel="6.0" length="5" maxSpeed="22.2"
+           probability="0.02"
+           color="1,0,0"
+           guiShape="emergency"
+           />
+  </vTypeDistribution>
+</additional>
