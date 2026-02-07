@@ -1,0 +1,13 @@
+.venv
+venv/
+*.toml
+*.lock
+.pytest_cache/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.idea/
+*.egg-info/
+dist/
+build/
