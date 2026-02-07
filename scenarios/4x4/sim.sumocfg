@@ -1,13 +1,12 @@
 <configuration>
   <input>
-    <net-file value="grid3x3.net.xml"/>
-    <route-files value="grid3x3.rou.xml"/>
+    <net-file value="grid_4x4_tls.net.xml"/>
+    <route-files value="routes.rou.xml"/>
   </input>
 
   <time>
     <begin value="0"/>
     <end value="3600"/>
-    <step-length value="1"/>
   </time>
 
   <report>
@@ -15,4 +14,3 @@
     <no-step-log value="true"/>
   </report>
 </configuration>
-

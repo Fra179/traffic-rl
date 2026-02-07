@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 from typing import Any
+import os
 
 import gymnasium as gym
 import numpy as np
@@ -33,7 +34,7 @@ from sumo_rl import SumoEnvironment
 
 
 DEFAULT_SCENARIO_DIR = Path("/home/andrea/traffic-rl/scenarios/grid3x3")
-
+os.env["LIBSUMO_AS_TRACI"] = 1
 
 def _resolve_scenario_dir(user_value: str | None) -> Path:
 	if user_value is None:
