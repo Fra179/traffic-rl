@@ -1,0 +1,7 @@
+<nodes>
+    <node id="center" x="0" y="0" type="traffic_light"/>
+    <node id="top" x="0" y="200"/>
+    <node id="bottom" x="0" y="-200"/>
+    <node id="left" x="-200" y="0"/>
+    <node id="right" x="200" y="0"/>
+</nodes>
