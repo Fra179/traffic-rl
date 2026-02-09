@@ -1,7 +1,11 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "traffic-rl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Reinforcement Learning for Traffic Light Control"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

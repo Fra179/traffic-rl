@@ -14,9 +14,9 @@ else:
 import traci
 from linear_rl.true_online_sarsa import TrueOnlineSarsaLambda
 from sumo_rl import SumoEnvironment
-from utils import run_baseline, reward_minimize_queue
 
-import os
+from traffic_rl.callbacks import run_baseline
+from traffic_rl.rewards import reward_minimize_queue
 
 os.environ["LIBSUMO_AS_TRACI"] = "1"
 
