@@ -2,14 +2,13 @@ import gymnasium as gym
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from stable_baselines3 import DQN
+from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 import sumo_rl
 import os
 
 os.environ["LIBSUMO_AS_TRACI"] = "1"
-
 
 class LivePlotCallback(BaseCallback):
     def __init__(self, alpha=0.05, verbose=0):
@@ -25,7 +24,7 @@ class LivePlotCallback(BaseCallback):
         
         plt.ion()
         self.fig, self.axs = plt.subplots(5, 1, figsize=(10, 14), sharex=True)
-        self.fig.suptitle(f'DQN - Minimize Queue Length | EMA={self.alpha}')
+        self.fig.suptitle(f'PPO - Minimize Queue Length | EMA={self.alpha}')
         
         labels = ['Reward (Queue)', 'Wait (s)', 'Queue Length', 'Speed (m/s)', 'Total Cars']
         self.lines_raw = []
@@ -117,54 +116,43 @@ def reward_vidali_waiting_time(ts):
     return -float(total_wait) 
 
 if __name__ == "__main__":
-    NET_FILE = "scenarios/cross/cross.net.xml"  
+
+    NET_FILE = "scenarios/cross/cross.net.xml"  # Make sure this exists!
     ROUTE_FILE = "scenarios/cross/cross.rou.xml"
-    EPISODE_SECONDS = 3600 
-    TRAFFIC_BUFFER = 1.05
+    EPISODE_SECONDS = 3600
     TOTAL_SECONDS = 50000
     
+    # 1. Generate Traffic
 
-    # 1. Setup Environment
+    # 2. Setup Environment
+    # We use 'SumoEnvironment-v0' directly or via gym.make with careful args
     env = gym.make('sumo-rl-v0',
                    net_file=NET_FILE,
                    route_file=ROUTE_FILE,
-                   out_csv_name="outputs/dqn_queue_run",
-                   use_gui=False,          
-                   num_seconds=EPISODE_SECONDS, 
+                   out_csv_name="outputs/ppo_run",
+                   use_gui=False,          # Set False to speed up training
+                   num_seconds=EPISODE_SECONDS,
                    add_system_info=True,
-                   reward_fn=reward_minimize_queue) # <--- USING NEW REWARD
+                   reward_fn=reward_minimize_queue)  # CRITICAL for stats extraction!
 
     env = DummyVecEnv([lambda: env])
-    
-    # Normalization is crucial here! 
-    # Queue length can be -50 or -100. We need to scale this down for DQN.
-    # env = VecNormalize(env, norm_obs=True)
 
-    # 2. DQN Agent
-    model = DQN(
+    # 3. Initialize PPO
+    model = PPO(
         "MlpPolicy",
         env,
         verbose=1,
-        learning_rate=0.0005,
-        buffer_size=50000,         # Memory size
-        learning_starts=1000,      
-        batch_size=64,             
-        target_update_interval=500,
-        train_freq=4,              
-        gradient_steps=1,          
-        exploration_fraction=0.2,  
-        exploration_initial_eps=1.0,
-        exploration_final_eps=0.05
+        learning_rate=0.0003,
+        gamma=0.99
     )
 
-    print("Starting DQN (Minimize Queue)...")
-    
+    # 4. Train
+    print("Starting PPO training with live plotting...")
     try:
-        model.learn(total_timesteps=TOTAL_SECONDS, callback=LivePlotCallback(alpha=0.05))
-    finally:
-        model.save("dqn_queue_model")
-        env.save("dqn_queue_vec_normalize.pkl")
-
+        model.learn(total_timesteps=TOTAL_SECONDS, callback=LivePlotCallback())
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user.")
+    
     print("Done.")
     plt.ioff()
     plt.show()

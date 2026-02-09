@@ -5,7 +5,7 @@
     </input>
     <time>
         <begin value="0"/>
-        <end value="36000"/>
+        <end value="3600"/>
     </time>
     <gui_only>
         <start value="true"/>
