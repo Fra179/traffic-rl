@@ -7,13 +7,6 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 import sumo_rl
 
-# --- WAYLAND/DISPLAY FIX ---
-try:
-    matplotlib.use('Qt5Agg')
-except ImportError:
-    matplotlib.use('TkAgg')
-
-# --- METRICS CALLBACK ---
 class LivePlotCallback(BaseCallback):
     def __init__(self, alpha=0.05, verbose=0):
         super(LivePlotCallback, self).__init__(verbose)
