@@ -1,4 +1,5 @@
 import random
+random.seed(42)
 
 def generate_route_file(filename, total_time, veh_per_hour):
     # Your specific route definition list
