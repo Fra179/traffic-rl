@@ -1,7 +1,6 @@
 import gymnasium as gym
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
+import wandb
 from stable_baselines3 import DQN
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
@@ -11,44 +10,12 @@ import os
 os.environ["LIBSUMO_AS_TRACI"] = "1"
 
 
-class LivePlotCallback(BaseCallback):
-    def __init__(self, alpha=0.05, verbose=0):
-        super(LivePlotCallback, self).__init__(verbose)
-        self.alpha = alpha
-        
-        self.steps = []
-        self.rewards, self.ema_rewards = [], []
-        self.waits, self.ema_waits = [], []
-        self.queues, self.ema_queues = [], []
-        self.speeds, self.ema_speeds = [], []      
-        self.total_cars, self.ema_total_cars = [], [] 
-        
-        plt.ion()
-        self.fig, self.axs = plt.subplots(5, 1, figsize=(10, 14), sharex=True)
-        self.fig.suptitle(f'DQN - Minimize Queue Length | EMA={self.alpha}')
-        
-        labels = ['Reward (Queue)', 'Wait (s)', 'Queue Length', 'Speed (m/s)', 'Total Cars']
-        self.lines_raw = []
-        self.lines_ema = []
-        
-        for i, ax in enumerate(self.axs):
-            ax.set_ylabel(labels[i])
-            l_raw, = ax.plot([], [], color='gray', alpha=0.2, linewidth=1)
-            color = ['blue', 'red', 'orange', 'green', 'purple'][i]
-            l_ema, = ax.plot([], [], color=color, alpha=1.0, linewidth=1.5, label='EMA')
-            self.lines_raw.append(l_raw)
-            self.lines_ema.append(l_ema)
-            if i == 0: ax.legend(loc='upper left')
-
-        self.axs[-1].set_xlabel('Steps')
-
-    def _calc_ema(self, new_val, history_list):
-        if not history_list: return new_val
-        return (self.alpha * new_val) + ((1 - self.alpha) * history_list[-1])
+class TrafficWandbCallback(BaseCallback):
+    def __init__(self, verbose=0):
+        super(TrafficWandbCallback, self).__init__(verbose)
 
     def _on_step(self) -> bool:
         infos = self.locals['infos'][0]
-        dones = self.locals['dones'][0]
         reward = self.locals['rewards'][0] # Normalized Reward
         
         wait_time = infos.get('system_total_waiting_time', 0)
@@ -61,42 +28,106 @@ class LivePlotCallback(BaseCallback):
         except:
             total_vehicles = 0
 
-        ema_reward = self._calc_ema(reward, self.ema_rewards)
-        ema_wait = self._calc_ema(wait_time, self.ema_waits)
-        ema_queue = self._calc_ema(queue_len, self.ema_queues)
-        ema_speed = self._calc_ema(mean_speed, self.ema_speeds)
-        ema_total = self._calc_ema(total_vehicles, self.ema_total_cars)
-
-        self.steps.append(self.num_timesteps)
-        self.rewards.append(reward); self.ema_rewards.append(ema_reward)
-        self.waits.append(wait_time); self.ema_waits.append(ema_wait)
-        self.queues.append(queue_len); self.ema_queues.append(ema_queue)
-        self.speeds.append(mean_speed); self.ema_speeds.append(ema_speed)
-        self.total_cars.append(total_vehicles); self.ema_total_cars.append(ema_total)
-
-        if dones:
-            for ax in self.axs:
-                ax.axvline(x=self.num_timesteps, color='k', linestyle='--', alpha=0.3)
-
-        if self.num_timesteps % 50 == 0:
-            self._update_plot()
+        wandb.log({
+            "step": self.num_timesteps,
+            "reward": reward,
+            "waiting_time": wait_time,
+            "queue_length": queue_len,
+            "mean_speed": mean_speed,
+            "total_vehicles": total_vehicles,
+        })
         return True
 
-    def _update_plot(self):
-        data_pairs = [
-            (self.rewards, self.ema_rewards),
-            (self.waits, self.ema_waits),
-            (self.queues, self.ema_queues),
-            (self.speeds, self.ema_speeds),
-            (self.total_cars, self.ema_total_cars)
-        ]
-        for i, (raw, ema) in enumerate(data_pairs):
-            self.lines_raw[i].set_data(self.steps, raw)
-            self.lines_ema[i].set_data(self.steps, ema)
-            self.axs[i].relim()
-            self.axs[i].autoscale_view()
-        plt.draw()
-        plt.pause(0.001)
+class ValidationCallback(BaseCallback):
+    def __init__(self, eval_env, baseline_metrics, eval_freq=720, verbose=0):
+        super(ValidationCallback, self).__init__(verbose)
+        self.eval_env = eval_env
+        self.baseline_metrics = baseline_metrics
+        self.eval_freq = eval_freq
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps > 0 and self.num_timesteps % self.eval_freq == 0:
+            print(f"Running Validation at step {self.num_timesteps}...")
+            
+            # Run one episode with current model
+            obs, info = self.eval_env.reset()
+            done = False
+            truncated = False
+            
+            # Collectors
+            wait_times = []
+            queues = []
+            speeds = []
+            
+            while not (done or truncated):
+                action, _ = self.model.predict(obs, deterministic=True)
+                obs, reward, done, truncated, info = self.eval_env.step(action)
+                
+                wait_times.append(info.get('system_total_waiting_time', 0))
+                queues.append(info.get('system_total_stopped', 0))
+                speeds.append(info.get('system_mean_speed', 0))
+
+            mean_wait = np.mean(wait_times)
+            mean_queue = np.mean(queues)
+            mean_speed = np.mean(speeds)
+
+            # Log comparison
+            wandb.log({
+                "validation/step": self.num_timesteps,
+                "validation/mean_waiting_time": mean_wait,
+                "validation/mean_queue_length": mean_queue,
+                "validation/mean_speed": mean_speed,
+                
+                "baseline/mean_waiting_time": self.baseline_metrics['mean_waiting_time'],
+                "baseline/mean_queue_length": self.baseline_metrics['mean_queue_length'],
+                "baseline/mean_speed": self.baseline_metrics['mean_speed'],
+            })
+            
+            print(f"Validation Complete. Speed: {mean_speed:.2f} vs Baseline: {self.baseline_metrics['mean_speed']:.2f}")
+            
+            # Important: Reset env for next time (though reset() does it)
+            # self.eval_env.reset() # Not strictly needed as we reset at start of block
+            
+        return True
+
+def run_baseline(net_file, route_file, num_seconds):
+    print("Computing Fixed-TS Baseline...")
+    import gymnasium as gym # Ensure clean env
+    
+    # Use fixed_ts=True for baseline
+    env = gym.make('sumo-rl-v0',
+                   net_file=net_file,
+                   route_file=route_file,
+                   num_seconds=num_seconds,
+                   use_gui=False,
+                   fixed_ts=True,
+                   sumo_seed='42') # Fixed seed for baseline to be consistent
+    
+    obs, info = env.reset()
+    done = False
+    truncated = False
+    
+    wait_times = []
+    queues = []
+    speeds = []
+    
+    while not (done or truncated):
+        action = env.action_space.sample() # Ignored
+        obs, reward, done, truncated, info = env.step(action)
+        
+        wait_times.append(info.get('system_total_waiting_time', 0))
+        queues.append(info.get('system_total_stopped', 0))
+        speeds.append(info.get('system_mean_speed', 0))
+        
+    env.close()
+    
+    metrics = {
+        "mean_waiting_time": np.mean(wait_times),
+        "mean_queue_length": np.mean(queues),
+        "mean_speed": np.mean(speeds)
+    }
+    print(f"Baseline Computed: {metrics}")
+    return metrics
 
 # --- REWARD FUNCTION ---
 def reward_minimize_queue(ts):
@@ -123,8 +154,11 @@ if __name__ == "__main__":
     TRAFFIC_BUFFER = 1.05
     TOTAL_SECONDS = 50000
     
+    # 0. Compute Baseline First
+    # We use the same parameters as training, but with fixed_ts=True
+    baseline_metrics = run_baseline(NET_FILE, ROUTE_FILE, EPISODE_SECONDS)
 
-    # 1. Setup Environment
+    # 1. Setup Training Environment
     env = gym.make('sumo-rl-v0',
                    net_file=NET_FILE,
                    route_file=ROUTE_FILE,
@@ -132,9 +166,20 @@ if __name__ == "__main__":
                    use_gui=False,          
                    num_seconds=EPISODE_SECONDS, 
                    add_system_info=True,
-                   reward_fn=reward_minimize_queue) # <--- USING NEW REWARD
+                   reward_fn=reward_minimize_queue) 
 
     env = DummyVecEnv([lambda: env])
+    
+    # Setup Evaluation Environment (Separate instance)
+    # We use a fixed seed '42' to be consistent with baseline for fair comparison
+    eval_env = gym.make('sumo-rl-v0',
+                   net_file=NET_FILE,
+                   route_file=ROUTE_FILE,
+                   use_gui=False,          
+                   num_seconds=EPISODE_SECONDS, 
+                   add_system_info=True,
+                   reward_fn=reward_minimize_queue,
+                   sumo_seed='42') 
     
     # Normalization is crucial here! 
     # Queue length can be -50 or -100. We need to scale this down for DQN.
@@ -159,12 +204,37 @@ if __name__ == "__main__":
 
     print("Starting DQN (Minimize Queue)...")
     
+    wandb.init(
+        entity="fds-final-project",
+        project="rl-traffic-light",
+        name="dqn-cross-queue",
+        config={
+            "net_file": NET_FILE,
+            "route_file": ROUTE_FILE,
+            "episode_seconds": EPISODE_SECONDS,
+            "total_timesteps": TOTAL_SECONDS,
+            "learning_rate": 0.0005,
+            "batch_size": 64,
+            "baseline_metrics": baseline_metrics
+        }
+    )
+    
+    # Calculate eval_freq based on assumption of 5s delta_time
+    # If delta_time is different, adjust this. default is 5.
+    STEPS_PER_EPISODE = EPISODE_SECONDS // 5 
+    
+    # Combine callbacks
+    callbacks = [
+        TrafficWandbCallback(),
+        ValidationCallback(eval_env, baseline_metrics, eval_freq=STEPS_PER_EPISODE)
+    ]
+
     try:
-        model.learn(total_timesteps=TOTAL_SECONDS, callback=LivePlotCallback(alpha=0.05))
+        model.learn(total_timesteps=TOTAL_SECONDS, callback=callbacks)
     finally:
         model.save("dqn_queue_model")
         env.save("dqn_queue_vec_normalize.pkl")
+        eval_env.close() # Close eval env
+        wandb.finish()
 
     print("Done.")
-    plt.ioff()
-    plt.show()
