@@ -2,7 +2,8 @@ import argparse
 import os
 import sys
 
-import matplotlib.pyplot as plt
+import numpy as np
+import wandb
 
 if "SUMO_HOME" in os.environ:
     tools = os.path.join(os.environ["SUMO_HOME"], "tools")
@@ -13,101 +14,58 @@ else:
 import traci
 from linear_rl.true_online_sarsa import TrueOnlineSarsaLambda
 from sumo_rl import SumoEnvironment
+from utils import run_baseline, reward_minimize_queue
 
 import os
 
 os.environ["LIBSUMO_AS_TRACI"] = "1"
 
-class LivePlotter:
-    def __init__(self, alpha=0.05):
-        self.alpha = alpha
-        self.steps = []
-        self.rewards, self.ema_rewards = [], []
-        self.waits, self.ema_waits = [], []
-        self.queues, self.ema_queues = [], []
-        self.speeds, self.ema_speeds = [], []
-        self.total_cars, self.ema_total_cars = [], []
 
-        plt.ion()
-        self.fig, self.axs = plt.subplots(5, 1, figsize=(10, 14), sharex=True)
-        self.fig.suptitle(f"SARSA Lambda - Minimize Queue Length | EMA={self.alpha}")
+def run_validation(agent, eval_env, baseline_metrics, step):
+    print(f"Running Validation at step {step}...")
+    
+    # Save original epsilon and set to 0 for greedy evaluation
+    original_epsilon = agent.epsilon
+    agent.epsilon = 0.0
+    
+    obs, info = eval_env.reset()
+    done = False
+    truncated = False
+    
+    wait_times = []
+    queues = []
+    speeds = []
+    
+    while not (done or truncated):
+        action = agent.act(obs)
+        obs, reward, done, truncated, info = eval_env.step(action)
+        
+        wait_times.append(info.get('system_total_waiting_time', 0))
+        queues.append(info.get('system_total_stopped', 0))
+        speeds.append(info.get('system_mean_speed', 0))
 
-        labels = ["Reward", "Wait (s)", "Queue Length", "Speed (m/s)", "Total Cars"]
-        self.lines_raw = []
-        self.lines_ema = []
+    mean_wait = np.mean(wait_times)
+    mean_queue = np.mean(queues)
+    mean_speed = np.mean(speeds)
 
-        colors = ["blue", "red", "orange", "green", "purple"]
-        for i, ax in enumerate(self.axs):
-            ax.set_ylabel(labels[i])
-            raw_line, = ax.plot([], [], color="gray", alpha=0.2, linewidth=1)
-            ema_line, = ax.plot([], [], color=colors[i], alpha=1.0, linewidth=1.5, label="EMA")
-            self.lines_raw.append(raw_line)
-            self.lines_ema.append(ema_line)
-            if i == 0:
-                ax.legend(loc="upper left")
-
-        self.axs[-1].set_xlabel("Steps")
-
-    def _calc_ema(self, new_val, history_list):
-        if not history_list:
-            return new_val
-        return (self.alpha * new_val) + ((1 - self.alpha) * history_list[-1])
-
-    def update(self, step, reward, info):
-        wait_time = info.get("system_total_waiting_time", 0)
-        queue_len = info.get("system_total_stopped", 0)
-        mean_speed = info.get("system_mean_speed", 0)
-
-        try:
-            total_vehicles = traci.vehicle.getIDCount()
-        except Exception:
-            total_vehicles = 0
-
-        ema_reward = self._calc_ema(reward, self.ema_rewards)
-        ema_wait = self._calc_ema(wait_time, self.ema_waits)
-        ema_queue = self._calc_ema(queue_len, self.ema_queues)
-        ema_speed = self._calc_ema(mean_speed, self.ema_speeds)
-        ema_total = self._calc_ema(total_vehicles, self.ema_total_cars)
-
-        self.steps.append(step)
-        self.rewards.append(reward)
-        self.ema_rewards.append(ema_reward)
-        self.waits.append(wait_time)
-        self.ema_waits.append(ema_wait)
-        self.queues.append(queue_len)
-        self.ema_queues.append(ema_queue)
-        self.speeds.append(mean_speed)
-        self.ema_speeds.append(ema_speed)
-        self.total_cars.append(total_vehicles)
-        self.ema_total_cars.append(ema_total)
-
-        if step % 50 == 0:
-            self._render()
-
-    def _render(self):
-        data_pairs = [
-            (self.rewards, self.ema_rewards),
-            (self.waits, self.ema_waits),
-            (self.queues, self.ema_queues),
-            (self.speeds, self.ema_speeds),
-            (self.total_cars, self.ema_total_cars),
-        ]
-
-        for i, (raw, ema) in enumerate(data_pairs):
-            self.lines_raw[i].set_data(self.steps, raw)
-            self.lines_ema[i].set_data(self.steps, ema)
-            self.axs[i].relim()
-            self.axs[i].autoscale_view()
-
-        plt.draw()
-        plt.pause(0.001)
-
-    def close(self):
-        plt.close(self.fig)
+    # Log comparison
+    wandb.log({
+        "validation/step": step,
+        "validation/mean_waiting_time": mean_wait,
+        "validation/mean_queue_length": mean_queue,
+        "validation/mean_speed": mean_speed,
+        
+        "baseline/mean_waiting_time": baseline_metrics['mean_waiting_time'],
+        "baseline/mean_queue_length": baseline_metrics['mean_queue_length'],
+        "baseline/mean_speed": baseline_metrics['mean_speed'],
+    })
+    
+    print(f"Validation Complete. Speed: {mean_speed:.2f} vs Baseline: {baseline_metrics['mean_speed']:.2f}")
+    
+    # Restore epsilon
+    agent.epsilon = original_epsilon
 
 
-def reward_minimize_queue(ts):
-    return -float(ts.get_total_queued())
 
 def reward_vidali_waiting_time(ts):
     """
@@ -142,9 +100,22 @@ if __name__ == "__main__":
     prs.add_argument("-gui", action="store_true", default=False, help="Run with visualization on SUMO.\n")
     prs.add_argument("-fixed", action="store_true", default=False, help="Run with fixed timing traffic signals.\n")
     prs.add_argument("-s", dest="seconds", type=int, default=3600, required=False, help="Number of simulation seconds.\n")
-    prs.add_argument("-runs", dest="runs", type=int, default=100, help="Number of runs.\n")
-    prs.add_argument("-plot", action="store_true", default=True, help="Enable live plotting.\n")
+    prs.add_argument("-runs", dest="runs", type=int, default=300, help="Number of runs.\n") # Increased runs default 
     args = prs.parse_args()
+
+    # 1. Compute Baseline
+    baseline_metrics = run_baseline("scenarios/cross/cross.net.xml", args.route, args.seconds)
+
+    # 2. Wandb Init
+    wandb.init(
+        entity="fds-final-project",
+        project="rl-traffic-light",
+        name="sarsa-cross-queue",
+        config=vars(args)
+    )
+    
+    # Add baseline metrics to config
+    wandb.config.update({"baseline_metrics": baseline_metrics})
 
     out_csv = "outputs/cross_sarsa_run"
 
@@ -161,6 +132,20 @@ if __name__ == "__main__":
         add_system_info=True,
     )
 
+    # Setup Eval Env
+    eval_env = SumoEnvironment(
+        net_file="scenarios/cross/cross.net.xml",
+        single_agent=True,
+        route_file=args.route,
+        use_gui=False,
+        num_seconds=args.seconds,
+        min_green=args.min_green,
+        max_green=args.max_green,
+        reward_fn=reward_minimize_queue,
+        add_system_info=True,
+        sumo_seed='42'
+    )
+
     agent = TrueOnlineSarsaLambda(
         env.observation_space,
         env.action_space,
@@ -171,8 +156,11 @@ if __name__ == "__main__":
         lamb=0.95,
     )
 
-    plotter = LivePlotter(alpha=0.05) if args.plot else None
     total_steps = 0
+    # Calculate eval freq: We want to validate roughly every episode or fraction of it. 
+    # Let's say once per episode for now, or every 720 steps as in DQN/PPO.
+    # EPISODE_STEPS = args.seconds // 5.
+    eval_freq = 720 
 
     for run in range(1, args.runs + 1):
         obs, info = env.reset()
@@ -194,15 +182,37 @@ if __name__ == "__main__":
                     done=terminated,
                 )
                 obs = next_obs
+                
+                # Logging
                 step_count += 1
                 total_steps += 1
-                if plotter:
-                    plotter.update(total_steps, reward, info)
+                
+                wait_time = info.get("system_total_waiting_time", 0)
+                queue_len = info.get("system_total_stopped", 0)
+                mean_speed = info.get("system_mean_speed", 0)
+                try:
+                    total_vehicles = traci.vehicle.getIDCount()
+                except:
+                    total_vehicles = 0
+                
+                wandb.log({
+                    "step": total_steps,
+                    "reward": reward,
+                    "waiting_time": wait_time,
+                    "queue_length": queue_len,
+                    "mean_speed": mean_speed,
+                    "total_vehicles": total_vehicles,
+                })
+                
+                # Validation check
+                if total_steps > 0 and total_steps % eval_freq == 0:
+                     run_validation(agent, eval_env, baseline_metrics, total_steps)
 
         env.save_csv(out_csv, run)
-    
-    if plotter:
-        plotter.close()
 
+    # finish
+    eval_env.close()
     env.close()
+    wandb.finish()
+
 
