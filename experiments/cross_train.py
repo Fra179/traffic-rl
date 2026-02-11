@@ -65,9 +65,18 @@ ALGORITHM_CONFIGS = {
 
 
 def main(args):
-    NET_FILE = "scenarios/cross_dynamic/cross.net.xml"
-    ROUTE_FILE = "scenarios/cross_dynamic/train.rou.xml"
-    EVAL_ROUTE_FILE = "scenarios/cross_dynamic/eval.rou.xml"
+    # Setup file paths
+    if args.scenario_dir:
+        # Custom scenario directory provided
+        BASE_DIR = args.scenario_dir
+        NET_FILE = f"{BASE_DIR}/{args.net_file}" if args.net_file else f"{BASE_DIR}/net.xml"
+        ROUTE_FILE = f"{BASE_DIR}/{args.train_route_file}" if args.train_route_file else f"{BASE_DIR}/train.rou.xml"
+        EVAL_ROUTE_FILE = f"{BASE_DIR}/{args.eval_route_file}" if args.eval_route_file else f"{BASE_DIR}/eval.rou.xml"
+    else:
+        # Default to cross_dynamic scenario
+        NET_FILE = "scenarios/cross_dynamic/cross.net.xml"
+        ROUTE_FILE = "scenarios/cross_dynamic/train.rou.xml"
+        EVAL_ROUTE_FILE = "scenarios/cross_dynamic/eval.rou.xml"
     
     # Validate algorithm choice
     if args.algorithm not in ALGORITHM_CONFIGS:
@@ -75,20 +84,47 @@ def main(args):
     
     algo_config = ALGORITHM_CONFIGS[args.algorithm]
     
+    # Auto-detect episode duration from route files if not specified
+    episode_seconds = args.episode_seconds
+    eval_episode_seconds = args.eval_episode_seconds
+    
+    if args.auto_duration:
+        print("Auto-detecting episode duration from route files...")
+        try:
+            import xml.etree.ElementTree as ET
+            
+            # Get training duration
+            train_tree = ET.parse(ROUTE_FILE)
+            train_root = train_tree.getroot()
+            train_comment = train_root.getchildren()[0] if len(train_root.getchildren()) > 0 else None
+            if train_comment is not None and 'Total Duration:' in train_comment.text:
+                episode_seconds = int(train_comment.text.split('Total Duration:')[1].split('s')[0].strip())
+                print(f"  Detected training duration: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
+            
+            # Get eval duration
+            eval_tree = ET.parse(EVAL_ROUTE_FILE)
+            eval_root = eval_tree.getroot()
+            eval_comment = eval_root.getchildren()[0] if len(eval_root.getchildren()) > 0 else None
+            if eval_comment is not None and 'Total Duration:' in eval_comment.text:
+                eval_episode_seconds = int(eval_comment.text.split('Total Duration:')[1].split('s')[0].strip())
+                print(f"  Detected eval duration: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
+        except Exception as e:
+            print(f"  Warning: Could not auto-detect duration ({e}), using provided values")
+    
     # 0. Compute Baseline First
     print("Computing baseline metrics...")
-    baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, args.eval_episode_seconds)
-    print(f"Training episode length: {args.episode_seconds}s ({args.episode_seconds/3600:.2f}h)")
-    print(f"Evaluation episode length: {args.eval_episode_seconds}s ({args.eval_episode_seconds/3600:.2f}h)")
+    baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
+    print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
+    print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
     
     # 1. Setup Training Environment
     def make_env():
         return gym.make('sumo-rl-v0',
                        net_file=NET_FILE,
                        route_file=ROUTE_FILE,
-                       out_csv_name=f"outputs/{args.algorithm}_queue_run",
+                       out_csv_name=f"outputs/{args.output_prefix}_{args.algorithm}_queue_run" if args.output_prefix else f"outputs/{args.algorithm}_queue_run",
                        use_gui=args.gui,
-                       num_seconds=args.episode_seconds,
+                       num_seconds=episode_seconds,
                        add_system_info=True,
                        reward_fn=reward_minimize_max_queue,
                        observation_class=GridObservationFunction)
@@ -100,7 +136,7 @@ def main(args):
                         net_file=NET_FILE,
                         route_file=EVAL_ROUTE_FILE,
                         use_gui=False,
-                        num_seconds=args.eval_episode_seconds,
+                        num_seconds=eval_episode_seconds,
                         add_system_info=True,
                         reward_fn=reward_minimize_max_queue,
                         observation_class=GridObservationFunction,
@@ -129,17 +165,20 @@ def main(args):
     print(f"Starting {args.algorithm.upper()} training...")
     
     # 3. Initialize Wandb
+    run_name = f"{args.algorithm}-{args.run_name}" if args.run_name else f"{args.algorithm}-queue"
+    
     wandb.init(
         entity="fds-final-project",
         project="rl-traffic-light",
-        name=f"{args.algorithm}-cross-{args.run_name}" if args.run_name else f"{args.algorithm}-cross-queue",
+        name=run_name,
         config={
             "algorithm": args.algorithm,
+            "scenario_dir": args.scenario_dir if args.scenario_dir else "scenarios/cross_dynamic",
             "net_file": NET_FILE,
             "route_file": ROUTE_FILE,
             "eval_route_file": EVAL_ROUTE_FILE,
-            "episode_seconds": args.episode_seconds,
-            "eval_episode_seconds": args.eval_episode_seconds,
+            "episode_seconds": episode_seconds,
+            "eval_episode_seconds": eval_episode_seconds,
             "total_timesteps": args.total_timesteps,
             "normalize": args.normalize,
             "baseline_metrics": baseline_metrics,
@@ -148,7 +187,7 @@ def main(args):
     )
     
     # Calculate eval_freq based on delta_time (default is 5s)
-    STEPS_PER_EPISODE = args.episode_seconds // 5
+    STEPS_PER_EPISODE = episode_seconds // 5
     
     # 4. Setup callbacks
     callbacks = [
@@ -161,13 +200,16 @@ def main(args):
         model.learn(total_timesteps=args.total_timesteps, callback=callbacks)
     finally:
         # Save model
-        model_path = f"{args.algorithm}_model"
+        model_name = f"{args.output_prefix}_{args.algorithm}_model" if args.output_prefix else f"{args.algorithm}_model"
+        model_path = f"weights/{model_name}"
+        os.makedirs("weights", exist_ok=True)
         model.save(model_path)
         print(f"Model saved to {model_path}")
         
         # Save normalization stats if used
         if args.normalize:
-            env.save(f"{args.algorithm}_vec_normalize.pkl")
+            norm_name = f"{args.output_prefix}_{args.algorithm}_vec_normalize.pkl" if args.output_prefix else f"{args.algorithm}_vec_normalize.pkl"
+            env.save(f"weights/{norm_name}")
         
         # Cleanup
         eval_env.close()
@@ -182,6 +224,42 @@ if __name__ == "__main__":
         description="Train traffic light controller with various RL algorithms from Stable Baselines3"
     )
     
+    # Scenario configuration
+    parser.add_argument(
+        "--scenario-dir",
+        type=str,
+        default=None,
+        help="Path to scenario directory (default: scenarios/cross_dynamic)"
+    )
+    
+    parser.add_argument(
+        "--net-file",
+        type=str,
+        default=None,
+        help="Network file name relative to scenario-dir (default: auto-detect or net.xml)"
+    )
+    
+    parser.add_argument(
+        "--train-route-file",
+        type=str,
+        default=None,
+        help="Training route file name relative to scenario-dir (default: train.rou.xml)"
+    )
+    
+    parser.add_argument(
+        "--eval-route-file",
+        type=str,
+        default=None,
+        help="Evaluation route file name relative to scenario-dir (default: eval.rou.xml)"
+    )
+    
+    parser.add_argument(
+        "--auto-duration",
+        action="store_true",
+        help="Auto-detect episode duration from route file comments"
+    )
+    
+    # Algorithm configuration
     parser.add_argument(
         "--algorithm", "-a",
         type=str,
@@ -190,20 +268,22 @@ if __name__ == "__main__":
         help="RL algorithm to use"
     )
     
+    # Episode configuration
     parser.add_argument(
         "--episode-seconds",
         type=int,
         default=16200,
-        help="Duration of each training episode in seconds (default: 16200s = 4.5 hours)"
+        help="Duration of each training episode in seconds (default: 16200s = 4.5 hours, ignored if --auto-duration)"
     )
     
     parser.add_argument(
         "--eval-episode-seconds",
         type=int,
         default=5400,
-        help="Duration of each evaluation episode in seconds (default: 5400s = 1.5 hours)"
+        help="Duration of each evaluation episode in seconds (default: 5400s = 1.5 hours, ignored if --auto-duration)"
     )
     
+    # Training configuration
     parser.add_argument(
         "--total-timesteps",
         type=int,
@@ -224,12 +304,22 @@ if __name__ == "__main__":
         help="Apply observation normalization (VecNormalize)"
     )
     
+    # Output configuration
+    parser.add_argument(
+        "--output-prefix",
+        type=str,
+        default=None,
+        help="Prefix for output CSV files"
+    )
+    
+    # Visualization
     parser.add_argument(
         "--gui",
         action="store_true",
         help="Run with SUMO GUI visualization"
     )
     
+    # Wandb configuration
     parser.add_argument(
         "--run-name",
         type=str,
