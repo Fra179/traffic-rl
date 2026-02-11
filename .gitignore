@@ -16,3 +16,4 @@ outputs/
 *.zip
 *.pkl
 wandb/
+scenarios/berlin-small/output/

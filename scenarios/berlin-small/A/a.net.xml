@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-02-11T22:46:34.118827+01:00 by Eclipse SUMO netedit 1.25.0
+<neteditConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/neteditConfiguration.xsd">
+
+    <input>
+        <sumo-net-file value="/home/andrea/traffic-rl/scenarios/berlin-small/a.net.xml"/>
+    </input>
+
+    <output>
+        <output-file value="/home/andrea/traffic-rl/scenarios/berlin-small/a.net.xml"/>
+    </output>
+
+    <processing>
+        <geometry.min-radius.fix.railways value="false"/>
+        <geometry.avoid-overlap value="false"/>
+        <geometry.max-grade.fix value="false"/>
+        <offset.disable-normalization value="true"/>
+        <lefthand value="0"/>
+    </processing>
+
+    <junctions>
+        <no-turnarounds value="true"/>
+        <junctions.corner-detail value="5"/>
+        <junctions.limit-turn-speed value="5.50"/>
+        <rectangular-lane-cut value="0"/>
+    </junctions>
+
+    <pedestrian>
+        <walkingareas value="0"/>
+    </pedestrian>
+
+</neteditConfiguration>
+-->
+
+<net version="1.20" junctionCornerDetail="5" limitTurnSpeed="5.50" avoidOverlap="0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
+
+    <location netOffset="-372355.98,-5804722.35" convBoundary="22187.61,16124.34,22441.43,16260.56" origBoundary="13.122591,52.383149,13.502221,52.618113" projParameter="+proj=utm +zone=33 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"/>
+
+    <type id="highway.primary" priority="12" numLanes="2" speed="27.78" disallow="tram rail_urban rail rail_electric rail_fast ship container cable_car subway aircraft wheelchair scooter drone" oneway="0"/>
+    <type id="highway.residential" priority="3" numLanes="1" speed="13.89" disallow="tram rail_urban rail rail_electric rail_fast ship container cable_car subway aircraft wheelchair scooter drone" oneway="0"/>
+
+    <edge id=":cluster_29784567_310818818_0" function="internal">
+        <lane id=":cluster_29784567_310818818_0_0" index="0" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="7.81" length="13.04" shape="22256.00,16158.94 22253.46,16158.20 22250.89,16158.87 22248.28,16160.95 22245.62,16164.45"/>
+    </edge>
+    <edge id=":cluster_29784567_310818818_1" function="internal">
+        <lane id=":cluster_29784567_310818818_1_0" index="0" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="6.42" length="9.04" shape="22255.72,16148.55 22254.70,16150.82 22254.68,16152.85 22255.64,16154.63 22257.60,16156.17"/>
+    </edge>
+    <edge id=":cluster_29784567_310818818_2" function="internal">
+        <lane id=":cluster_29784567_310818818_2_0" index="0" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="13.89" length="18.83" shape="22255.72,16148.55 22245.62,16164.45"/>
+        <lane id=":cluster_29784567_310818818_2_1" index="1" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="13.89" length="18.83" shape="22253.01,16146.84 22242.92,16162.73"/>
+    </edge>
+
+    <edge id="-8084127" from="27195466" to="cluster_29784567_310818818" priority="3" type="highway.residential" shape="22441.43,16260.56 22335.03,16201.47 22277.63,16169.59 22250.45,16153.89">
+        <lane id="-8084127_0" index="0" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="8.33" length="211.45" shape="22440.65,16261.96 22334.25,16202.87 22276.84,16170.98 22256.00,16158.94"/>
+    </edge>
+    <edge id="4782467#1" from="cluster_29784567_310818818" to="29784566" priority="12" type="highway.primary" spreadType="center" shape="22244.27,16163.59 22200.17,16232.88 22187.61,16253.23">
+        <lane id="4782467#1_0" index="0" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="13.89" length="106.05" shape="22245.62,16164.45 22201.53,16233.73 22188.97,16254.07"/>
+        <lane id="4782467#1_1" index="1" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="13.89" length="106.05" shape="22242.92,16162.73 22198.81,16232.03 22186.25,16252.39"/>
+        <param key="ref" value="B 96a"/>
+    </edge>
+    <edge id="8084127" from="cluster_29784567_310818818" to="27195466" priority="3" type="highway.residential" shape="22250.45,16153.89 22277.63,16169.59 22335.03,16201.47 22441.43,16260.56">
+        <lane id="8084127_0" index="0" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="8.33" length="211.40" shape="22257.60,16156.17 22278.42,16168.20 22335.81,16200.07 22442.21,16259.16"/>
+    </edge>
+    <edge id="823635966" from="7689833386" to="cluster_29784567_310818818" priority="12" type="highway.primary" spreadType="center" shape="22269.13,16124.34 22250.45,16153.89">
+        <lane id="823635966_0" index="0" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="13.89" length="27.63" shape="22270.48,16125.19 22255.72,16148.55"/>
+        <lane id="823635966_1" index="1" disallow="tram rail_urban rail rail_electric rail_fast ship cable_car subway" speed="13.89" length="27.63" shape="22267.78,16123.49 22253.01,16146.84"/>
+        <param key="ref" value="B 96a"/>
+    </edge>
+
+    <tlLogic id="cluster_29784567_310818818" type="actuated" programID="0" offset="0">
+        <phase duration="42" state="GGrr" minDur="5" maxDur="50"/>
+        <phase duration="3"  state="yyrr"/>
+        <phase duration="42" state="rGGG" minDur="5" maxDur="50"/>
+        <phase duration="3"  state="ryyy"/>
+    </tlLogic>
+
+    <junction id="27195466" type="dead_end" x="22441.43" y="16260.56" incLanes="8084127_0" intLanes="" shape="22441.43,16260.56 22442.98,16257.76 22441.43,16260.56"/>
+    <junction id="29784566" type="dead_end" x="22187.61" y="16253.23" incLanes="4782467#1_0 4782467#1_1" intLanes="" shape="22190.33,16254.91 22184.89,16251.55"/>
+    <junction id="7689833386" type="dead_end" x="22269.13" y="16124.34" incLanes="" intLanes="" shape="22266.43,16122.63 22271.83,16126.05"/>
+    <junction id="cluster_29784567_310818818" type="traffic_light" x="22247.36" y="16158.74" incLanes="-8084127_0 823635966_0 823635966_1" intLanes=":cluster_29784567_310818818_0_0 :cluster_29784567_310818818_1_0 :cluster_29784567_310818818_2_0 :cluster_29784567_310818818_2_1" shape="22255.20,16160.33 22258.40,16154.79 22256.71,16153.30 22256.33,16152.44 22256.27,16151.50 22256.51,16150.49 22257.07,16149.40 22251.66,16145.98 22241.57,16161.87 22246.97,16165.31 22248.46,16163.19 22249.90,16161.59 22251.29,16160.50 22252.64,16159.93 22253.94,16159.87">
+        <request index="0" response="1100" foes="1100" cont="0"/>
+        <request index="1" response="0000" foes="0000" cont="0"/>
+        <request index="2" response="0000" foes="0001" cont="0"/>
+        <request index="3" response="0000" foes="0001" cont="0"/>
+    </junction>
+
+    <connection from="-8084127" to="4782467#1" fromLane="0" toLane="0" via=":cluster_29784567_310818818_0_0" tl="cluster_29784567_310818818" linkIndex="0" dir="r" state="o"/>
+    <connection from="823635966" to="8084127" fromLane="0" toLane="0" via=":cluster_29784567_310818818_1_0" tl="cluster_29784567_310818818" linkIndex="1" dir="r" state="O"/>
+    <connection from="823635966" to="4782467#1" fromLane="0" toLane="0" via=":cluster_29784567_310818818_2_0" tl="cluster_29784567_310818818" linkIndex="2" dir="s" state="O"/>
+    <connection from="823635966" to="4782467#1" fromLane="1" toLane="1" via=":cluster_29784567_310818818_2_1" tl="cluster_29784567_310818818" linkIndex="3" dir="s" state="O"/>
+
+    <connection from=":cluster_29784567_310818818_0" to="4782467#1" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":cluster_29784567_310818818_1" to="8084127" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":cluster_29784567_310818818_2" to="4782467#1" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":cluster_29784567_310818818_2" to="4782467#1" fromLane="1" toLane="1" dir="s" state="M"/>
+
+</net>
