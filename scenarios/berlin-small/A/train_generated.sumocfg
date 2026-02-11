@@ -6,13 +6,26 @@
     </input>
     <time>
         <begin value="0"/>
-        <end value="9000"/>
+        <end value="16200"/>
     </time>
     <processing>
         <time-to-teleport value="-1"/>
+        <time-to-teleport.highways value="-1"/>
+        <time-to-teleport.disconnected value="-1"/>
+        <time-to-teleport.remove value="false"/>
+        <max-depart-delay value="-1"/>
+        <ignore-junction-blocker value="-1"/>
+        <ignore-route-errors value="true"/>
+        <collision.action value="none"/>
+        <collision.check-junctions value="false"/>
+        <collision.mingap-factor value="0"/>
+        <lanechange.duration value="10"/>
+        <eager-insert value="true"/>
+        <emergencydecel.warning-threshold value="0"/>
     </processing>
     <report>
         <verbose value="false"/>
         <no-step-log value="true"/>
+        <no-warnings value="true"/>
     </report>
 </configuration>

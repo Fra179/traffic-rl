@@ -205,7 +205,9 @@ def generate_scenarios(net_file: str,
         routes.write(f'<!-- Network: {Path(net_file).name} -->\n')
         routes.write('<routes>\n')
         routes.write('    <vType id="passenger" accel="0.8" decel="4.5" length="5.0" '
-                    'minGap="2.5" maxSpeed="13.89" vClass="passenger" />\n\n')
+                    'minGap="2.5" maxSpeed="13.89" vClass="passenger" '
+                    'speedFactor="1.0" speedDev="0.1" '
+                    'jmIgnoreJunctionFoeProb="1.0" jmIgnoreKeepClearTime="-1" />\n\n')
         
         # Write route definitions
         for route_def in route_definitions:
@@ -303,10 +305,23 @@ def create_sumo_config(net_file: str, route_file: str, output_file: str, end_tim
     </time>
     <processing>
         <time-to-teleport value="-1"/>
+        <time-to-teleport.highways value="-1"/>
+        <time-to-teleport.disconnected value="-1"/>
+        <time-to-teleport.remove value="false"/>
+        <max-depart-delay value="-1"/>
+        <ignore-junction-blocker value="-1"/>
+        <ignore-route-errors value="true"/>
+        <collision.action value="none"/>
+        <collision.check-junctions value="false"/>
+        <collision.mingap-factor value="0"/>
+        <lanechange.duration value="10"/>
+        <eager-insert value="true"/>
+        <emergencydecel.warning-threshold value="0"/>
     </processing>
     <report>
         <verbose value="false"/>
         <no-step-log value="true"/>
+        <no-warnings value="true"/>
     </report>
 </configuration>
 """
@@ -403,7 +418,7 @@ if __name__ == "__main__":
                     intersection_dir=str(intersection_dir),
                     segment_length_train=1800,  # 30 minutes per pattern
                     segment_length_eval=600,     # 10 minutes per pattern
-                    base_veh_per_hour=1200
+                    base_veh_per_hour=2000
                 )
             except Exception as e:
                 print(f"ERROR processing intersection {intersection}: {e}")
