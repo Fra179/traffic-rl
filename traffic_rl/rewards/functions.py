@@ -15,6 +15,29 @@ def reward_minimize_queue(ts):
     return -float(ts.get_total_queued())
 
 
+def reward_minimize_max_queue(ts):
+    """
+    Reward based on maximum queue length across all lanes.
+    Penalizes the longest queue (worst-case scenario).
+    This encourages balancing traffic across lanes.
+    
+    Args:
+        ts: TrafficSignal instance
+        
+    Returns:
+        float: Negative maximum queue length
+    """
+    # Get queue length for each lane
+    lanes = ts.lanes
+    max_queue = 0
+    
+    for lane in lanes:
+        queue_length = ts.sumo.lane.getLastStepHaltingNumber(lane)
+        max_queue = max(max_queue, queue_length)
+    
+    return -float(max_queue)
+
+
 def reward_vidali_waiting_time(ts):
     """
     Reward based on accumulated waiting time.

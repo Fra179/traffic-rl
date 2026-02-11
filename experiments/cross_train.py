@@ -8,7 +8,7 @@ import sumo_rl
 import os
 
 from traffic_rl.callbacks import TrafficWandbCallback, ValidationCallback, run_baseline
-from traffic_rl.rewards import reward_minimize_queue, reward_vidali_waiting_time
+from traffic_rl.rewards import reward_minimize_queue, reward_vidali_waiting_time, reward_minimize_max_queue
 from traffic_rl.observations import GridObservationFunction
 
 os.environ["LIBSUMO_AS_TRACI"] = "1"
@@ -65,8 +65,9 @@ ALGORITHM_CONFIGS = {
 
 
 def main(args):
-    NET_FILE = "scenarios/cross/cross.net.xml"
-    ROUTE_FILE = "scenarios/cross/cross.rou.xml"
+    NET_FILE = "scenarios/cross_dynamic/cross.net.xml"
+    ROUTE_FILE = "scenarios/cross_dynamic/train.rou.xml"
+    EVAL_ROUTE_FILE = "scenarios/cross_dynamic/eval.rou.xml"
     
     # Validate algorithm choice
     if args.algorithm not in ALGORITHM_CONFIGS:
@@ -76,7 +77,9 @@ def main(args):
     
     # 0. Compute Baseline First
     print("Computing baseline metrics...")
-    baseline_metrics = run_baseline(NET_FILE, ROUTE_FILE, args.episode_seconds)
+    baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, args.eval_episode_seconds)
+    print(f"Training episode length: {args.episode_seconds}s ({args.episode_seconds/3600:.2f}h)")
+    print(f"Evaluation episode length: {args.eval_episode_seconds}s ({args.eval_episode_seconds/3600:.2f}h)")
     
     # 1. Setup Training Environment
     def make_env():
@@ -87,7 +90,7 @@ def main(args):
                        use_gui=args.gui,
                        num_seconds=args.episode_seconds,
                        add_system_info=True,
-                       reward_fn=reward_minimize_queue,
+                       reward_fn=reward_minimize_max_queue,
                        observation_class=GridObservationFunction)
     
     env = DummyVecEnv([make_env])
@@ -95,11 +98,11 @@ def main(args):
     # Setup Evaluation Environment (Separate instance)
     eval_env = gym.make('sumo-rl-v0',
                         net_file=NET_FILE,
-                        route_file=ROUTE_FILE,
+                        route_file=EVAL_ROUTE_FILE,
                         use_gui=False,
-                        num_seconds=args.episode_seconds,
+                        num_seconds=args.eval_episode_seconds,
                         add_system_info=True,
-                        reward_fn=reward_minimize_queue,
+                        reward_fn=reward_minimize_max_queue,
                         observation_class=GridObservationFunction,
                         sumo_seed='42')
     
@@ -134,7 +137,9 @@ def main(args):
             "algorithm": args.algorithm,
             "net_file": NET_FILE,
             "route_file": ROUTE_FILE,
+            "eval_route_file": EVAL_ROUTE_FILE,
             "episode_seconds": args.episode_seconds,
+            "eval_episode_seconds": args.eval_episode_seconds,
             "total_timesteps": args.total_timesteps,
             "normalize": args.normalize,
             "baseline_metrics": baseline_metrics,
@@ -188,8 +193,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--episode-seconds",
         type=int,
-        default=3600,
-        help="Duration of each episode in seconds"
+        default=16200,
+        help="Duration of each training episode in seconds (default: 16200s = 4.5 hours)"
+    )
+    
+    parser.add_argument(
+        "--eval-episode-seconds",
+        type=int,
+        default=5400,
+        help="Duration of each evaluation episode in seconds (default: 5400s = 1.5 hours)"
     )
     
     parser.add_argument(

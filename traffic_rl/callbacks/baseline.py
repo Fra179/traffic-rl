@@ -2,6 +2,7 @@
 
 import numpy as np
 import gymnasium as gym
+import sumo_rl
 
 
 def run_baseline(net_file, route_file, num_seconds):
@@ -77,3 +78,12 @@ def run_baseline(net_file, route_file, num_seconds):
     
     print(f"Baseline Computed: {metrics}")
     return metrics
+
+if __name__ == "__main__":
+    # Example usage
+    NET_FILE = "scenarios/cross_dynamic/cross.net.xml"
+    ROUTE_FILE = "scenarios/cross_dynamic/eval.rou.xml"
+    EPISODE_SECONDS = 5400  # 1 hour
+    
+    baseline_metrics = run_baseline(NET_FILE, ROUTE_FILE, EPISODE_SECONDS)
+    print(f"Baseline Metrics: {baseline_metrics}")
