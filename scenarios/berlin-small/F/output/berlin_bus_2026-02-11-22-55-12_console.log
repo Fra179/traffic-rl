@@ -1,0 +1,15 @@
+Loading net-file from 'F.net.xml' ... done (6ms).
+Warning: At actuated tlLogic 'cluster_1860618835_1860618840_1860618845_1860618847_29784556_29784557', linkIndex 10,11 has no controlling detector.
+Loading route-files incrementally from 'F.rou.xml'
+Loading done.
+Simulation version 1.25.0 started with time: 28800.00.
+Simulation ended at time: 36000.00.
+Reason: The final simulation step has been reached.
+Performance:
+ Duration: 0.64s
+ Real time factor: 11232.4
+ UPS: 222645.865835
+Vehicles:
+ Inserted: 3894 (Loaded: 3941)
+ Running: 15
+ Waiting: 0

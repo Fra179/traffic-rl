@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-02-11T22:56:09.349308+01:00 by Eclipse SUMO GUI 1.25.0
+<sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="H/H.net.xml"/>
+        <route-files value="H/H.rou.xml"/>
+    </input>
+
+    <output>
+        <output-prefix value="output/berlin_bus_TIME_"/>
+        <summary-output value="H/summary.xml"/>
+        <statistic-output value="H/statistics.xml"/>
+    </output>
+
+    <time>
+        <begin value="28800.0"/>
+        <end value="36000.0"/>
+    </time>
+
+    <processing>
+        <route-steps value="200"/>
+        <no-internal-links value="false"/>
+        <ignore-junction-blocker value="20"/>
+        <time-to-teleport value="120.0"/>
+        <time-to-teleport.highways value="0"/>
+        <eager-insert value="false"/>
+    </processing>
+
+    <report>
+        <log value="H/console.log"/>
+    </report>
+
+    <random_number>
+        <random value="false"/>
+        <seed value="251920"/>
+    </random_number>
+
+</sumoConfiguration>
+-->
+
+<statistics xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/statistic_file.xsd">
+    <performance clockBegin="1770846969.35" clockEnd="1770846992.80" clockDuration="23.45" traciDuration="0.00" realTimeFactor="310.95" vehicleUpdatesPerSecond="1285.49" personUpdatesPerSecond="0.00" begin="28800.00" end="36092.00" duration="7292.00"/>
+    <vehicles loaded="912" inserted="880" running="8" waiting="0"/>
+    <teleports total="0" jam="0" yield="0" wrongLane="0"/>
+    <safety collisions="0" emergencyStops="0" emergencyBraking="0"/>
+    <persons loaded="0" running="0" jammed="0"/>
+    <personTeleports total="0" abortWait="0" wrongDest="0"/>
+</statistics>

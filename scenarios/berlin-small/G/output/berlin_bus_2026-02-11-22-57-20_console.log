@@ -1,0 +1,13 @@
+Loading net-file from 'G/G.net.xml' ... done (8ms).
+Warning: At actuated tlLogic 'cluster_29784567_310818818', actuated phase 0 has no controlling detector.
+Loading route-files incrementally from 'G/G.rou.xml'
+Loading done.
+Simulation ended at time: 28800.00.
+Performance:
+ Duration: 1.40s
+ Real time factor: 0
+ UPS: 0.000000
+Vehicles:
+ Inserted: 0 (Loaded: 1)
+ Running: 0
+ Waiting: 0

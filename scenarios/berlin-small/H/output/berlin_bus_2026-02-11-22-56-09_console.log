@@ -1,0 +1,14 @@
+Loading net-file from 'H/H.net.xml' ... done (6ms).
+Loading route-files incrementally from 'H/H.rou.xml'
+Loading done.
+Simulation started with time: 28800.00.
+Simulation ended at time: 36092.00.
+Reason: The final simulation step has been reached.
+Performance:
+ Duration: 23.45s
+ Real time factor: 310.946
+ UPS: 1285.488892
+Vehicles:
+ Inserted: 880 (Loaded: 912)
+ Running: 8
+ Waiting: 0
