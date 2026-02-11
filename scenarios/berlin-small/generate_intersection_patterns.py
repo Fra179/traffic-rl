@@ -281,6 +281,42 @@ def generate_scenarios(net_file: str,
     return total_vehicles
 
 
+def create_sumo_config(net_file: str, route_file: str, output_file: str, end_time: int = 10000):
+    """
+    Create a SUMO configuration file.
+    
+    Args:
+        net_file: Path to network file
+        route_file: Path to route file
+        output_file: Path to output .sumocfg file
+        end_time: Simulation end time in seconds
+    """
+    config_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+    <input>
+        <net-file value="{Path(net_file).name}"/>
+        <route-files value="{Path(route_file).name}"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="{end_time}"/>
+    </time>
+    <processing>
+        <time-to-teleport value="-1"/>
+    </processing>
+    <report>
+        <verbose value="false"/>
+        <no-step-log value="true"/>
+    </report>
+</configuration>
+"""
+    
+    with open(output_file, 'w') as f:
+        f.write(config_content)
+    
+    print(f"  ✓ Created config: {Path(output_file).name}")
+
+
 def generate_for_intersection(intersection_dir: str, 
                               segment_length_train: int = 1800,
                               segment_length_eval: int = 600,
@@ -328,6 +364,28 @@ def generate_for_intersection(intersection_dir: str,
         base_veh_per_hour=base_veh_per_hour,
         seed=999,
         max_patterns=12  # Fewer patterns for quicker eval
+    )
+    
+    # Generate SUMO config files
+    print(f"\nGenerating SUMO configuration files...")
+    train_config = intersection_path / "train_generated.sumocfg"
+    create_sumo_config(
+        net_file=str(net_file),
+        route_file=str(train_file),
+        output_file=str(train_config),
+        end_time=len(select_most_significant_patterns(
+            parse_network(str(net_file)).__len__(), 15
+        )) * segment_length_train
+    )
+    
+    eval_config = intersection_path / "eval_generated.sumocfg"
+    create_sumo_config(
+        net_file=str(net_file),
+        route_file=str(eval_file),
+        output_file=str(eval_config),
+        end_time=len(select_most_significant_patterns(
+            parse_network(str(net_file)).__len__(), 12
+        )) * segment_length_eval
     )
 
 
