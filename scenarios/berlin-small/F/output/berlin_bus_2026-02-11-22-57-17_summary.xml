@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-02-11T22:57:17.320229+01:00 by Eclipse SUMO GUI 1.25.0
+<sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+
+    <input>
+        <net-file value="F/F.net.xml"/>
+        <route-files value="F/F.rou.xml"/>
+    </input>
+
+    <output>
+        <output-prefix value="output/berlin_bus_TIME_"/>
+        <summary-output value="F/summary.xml"/>
+        <statistic-output value="F/statistics.xml"/>
+    </output>
+
+    <time>
+        <begin value="28800.0"/>
+        <end value="36000.0"/>
+    </time>
+
+    <processing>
+        <route-steps value="200"/>
+        <no-internal-links value="false"/>
+        <ignore-junction-blocker value="20"/>
+        <time-to-teleport value="120.0"/>
+        <time-to-teleport.highways value="0"/>
+        <eager-insert value="false"/>
+    </processing>
+
+    <report>
+        <log value="F/console.log"/>
+    </report>
+
+    <random_number>
+        <random value="false"/>
+        <seed value="251920"/>
+    </random_number>
+
+</sumoConfiguration>
+-->
+
+<summary xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/summary_file.xsd">
+</summary>

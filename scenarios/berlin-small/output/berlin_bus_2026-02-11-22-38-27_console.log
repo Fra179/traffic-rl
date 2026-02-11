@@ -1,0 +1,14 @@
+Loading net-file from '/home/francescodb/Documenti/Uni/RL/traffic-rl/scenarios/berlin-small/berlin-small.net.xml' ... done (29ms).
+Warning: At actuated tlLogic 'cluster_1860618835_1860618840_1860618845_1860618847_29784556_29784557', linkIndex 10,11 has no controlling detector.
+Loading route-files incrementally from '/home/francescodb/Documenti/Uni/RL/traffic-rl/scenarios/berlin-small/berlin-small.rou.xml'
+Loading done.
+Running "/usr/share/sumo/bin/netedit" --registry-viewport -s "/home/francescodb/Documenti/Uni/RL/traffic-rl/scenarios/berlin-small/berlin-small.net.xml" &.
+Simulation ended at time: 28800.00.
+Performance:
+ Duration: 1047.78s
+ Real time factor: 0
+ UPS: 0.000000
+Vehicles:
+ Inserted: 0 (Loaded: 1)
+ Running: 0
+ Waiting: 0
