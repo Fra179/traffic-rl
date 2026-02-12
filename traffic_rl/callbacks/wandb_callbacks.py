@@ -143,21 +143,30 @@ class ValidationCallback(BaseCallback):
             mean_speed = np.mean(speeds)
 
             # Log comparison
-            wandb.log({
+            log_dict = {
                 "validation/step": self.num_timesteps,
                 "validation/mean_waiting_time": mean_wait,
                 "validation/mean_queue_length": mean_queue,
                 "validation/mean_speed": mean_speed,
                 "validation/total_arrived": total_arrived,
                 "validation/total_switches": total_switches,
-                
-                "baseline/mean_waiting_time": self.baseline_metrics['mean_waiting_time'],
-                "baseline/mean_queue_length": self.baseline_metrics['mean_queue_length'],
-                "baseline/mean_speed": self.baseline_metrics['mean_speed'],
-                "baseline/total_arrived": self.baseline_metrics['total_arrived'],
-                "baseline/total_switches": self.baseline_metrics.get('total_switches', 0),
-            })
+            }
             
-            print(f"Validation Complete. Arrived: {total_arrived} vs Baseline: {self.baseline_metrics['total_arrived']}")
+            # Add baseline metrics if available
+            if self.baseline_metrics:
+                log_dict.update({
+                    "baseline/mean_waiting_time": self.baseline_metrics['mean_waiting_time'],
+                    "baseline/mean_queue_length": self.baseline_metrics['mean_queue_length'],
+                    "baseline/mean_speed": self.baseline_metrics['mean_speed'],
+                    "baseline/total_arrived": self.baseline_metrics['total_arrived'],
+                    "baseline/total_switches": self.baseline_metrics.get('total_switches', 0),
+                })
+            
+            wandb.log(log_dict)
+            
+            if self.baseline_metrics:
+                print(f"Validation Complete. Arrived: {total_arrived} vs Baseline: {self.baseline_metrics['total_arrived']}")
+            else:
+                print(f"Validation Complete. Arrived: {total_arrived}")
             
         return True
