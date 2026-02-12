@@ -96,18 +96,28 @@ def main(args):
             # Get training duration
             train_tree = ET.parse(ROUTE_FILE)
             train_root = train_tree.getroot()
-            train_comment = train_root.getchildren()[0] if len(train_root.getchildren()) > 0 else None
-            if train_comment is not None and 'Total Duration:' in train_comment.text:
-                episode_seconds = int(train_comment.text.split('Total Duration:')[1].split('s')[0].strip())
-                print(f"  Detected training duration: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
+            # Find comment with duration info (comments are not in list(root), need to check tree structure)
+            for comment in train_tree.iter():
+                if isinstance(comment, ET.Element) and comment.tag == ET.Comment:
+                    continue
+                # Comments come before the root children in the file, check raw text
+                break
+            
+            # Parse from file directly to get comments
+            with open(ROUTE_FILE, 'r') as f:
+                for line in f:
+                    if 'Total Duration:' in line:
+                        episode_seconds = int(line.split('Total Duration:')[1].split('s')[0].strip())
+                        print(f"  Detected training duration: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
+                        break
             
             # Get eval duration
-            eval_tree = ET.parse(EVAL_ROUTE_FILE)
-            eval_root = eval_tree.getroot()
-            eval_comment = eval_root.getchildren()[0] if len(eval_root.getchildren()) > 0 else None
-            if eval_comment is not None and 'Total Duration:' in eval_comment.text:
-                eval_episode_seconds = int(eval_comment.text.split('Total Duration:')[1].split('s')[0].strip())
-                print(f"  Detected eval duration: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
+            with open(EVAL_ROUTE_FILE, 'r') as f:
+                for line in f:
+                    if 'Total Duration:' in line:
+                        eval_episode_seconds = int(line.split('Total Duration:')[1].split('s')[0].strip())
+                        print(f"  Detected eval duration: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
+                        break
         except Exception as e:
             print(f"  Warning: Could not auto-detect duration ({e}), using provided values")
     
@@ -116,6 +126,19 @@ def main(args):
     baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
     print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
     print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
+    
+    # SUMO collision handling options  
+    # Allow teleportation but prevent strict errors that crash the simulation
+    SUMO_ADDITIONAL_OPTIONS = (
+        "--ignore-junction-blocker -1 "
+        "--ignore-route-errors true "
+        "--collision.action warn "
+        "--collision.check-junctions false "
+        "--collision.mingap-factor 0 "
+        "--lanechange.duration 10 "
+        "--eager-insert true "
+        "--emergencydecel.warning-threshold 0"
+    )
     
     # 1. Setup Training Environment
     def make_env():
@@ -127,7 +150,11 @@ def main(args):
                        num_seconds=episode_seconds,
                        add_system_info=True,
                        reward_fn=reward_minimize_max_queue,
-                       observation_class=GridObservationFunction)
+                       observation_class=GridObservationFunction,
+                       sumo_warnings=False,
+                       time_to_teleport=300,
+                       max_depart_delay=-1,
+                       additional_sumo_cmd=SUMO_ADDITIONAL_OPTIONS)
     
     env = DummyVecEnv([make_env])
     
@@ -140,7 +167,11 @@ def main(args):
                         add_system_info=True,
                         reward_fn=reward_minimize_max_queue,
                         observation_class=GridObservationFunction,
-                        sumo_seed='42')
+                        sumo_seed='42',
+                        sumo_warnings=False,
+                        time_to_teleport=300,
+                        max_depart_delay=-1,
+                        additional_sumo_cmd=SUMO_ADDITIONAL_OPTIONS)
     
     # Optional: Apply normalization
     if args.normalize:

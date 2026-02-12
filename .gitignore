@@ -17,3 +17,4 @@ outputs/
 *.pkl
 wandb/
 scenarios/berlin-small/output/
+logs/

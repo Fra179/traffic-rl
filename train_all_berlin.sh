@@ -8,7 +8,9 @@
 #   ./train_all_berlin.sh 50000 4      # Train all with 50k timesteps, 4 parallel
 
 TIMESTEPS=${1:-50000}
-MAX_PARALLEL=${2:-8}
+MAX_PARALLEL=${2:-16}
+
+export CUDA_VISIBLE_DEVICES=""
 
 echo "======================================"
 echo "Training All Berlin Intersections"
@@ -20,7 +22,7 @@ echo ""
 
 # Arrays
 ALGORITHMS=(dqn ppo a2c)
-INTERSECTIONS=(A B C D E F G H I J)
+INTERSECTIONS=(A C H I J)
 
 # Function to train a single intersection with an algorithm
 train_one() {
@@ -33,7 +35,7 @@ train_one() {
     
     echo "[$(date +%H:%M:%S)] Starting: $ALGORITHM on Intersection $INTERSECTION"
     
-    python experiments/cross_train.py \
+    uv run experiments/cross_train.py \
         --algorithm "$ALGORITHM" \
         --scenario-dir "scenarios/berlin-small/$INTERSECTION" \
         --net-file "${INTERSECTION_LOWER}.net.xml" \
