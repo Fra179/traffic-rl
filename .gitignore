@@ -18,3 +18,4 @@ outputs/
 wandb/
 scenarios/berlin-small/output/
 logs/
+*.txt
