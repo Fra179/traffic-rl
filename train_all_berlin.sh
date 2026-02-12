@@ -11,6 +11,13 @@ TIMESTEPS=${1:-50000}
 MAX_PARALLEL=${2:-16}
 
 export CUDA_VISIBLE_DEVICES=""
+export SUMO_PREFIX="$HOME/opt/sumo-1.26.0"
+export SUMO_HOME="$SUMO_PREFIX/share/sumo"
+export PATH="$SUMO_PREFIX/bin:$PATH"
+
+# opzionale: stampa una volta per conferma
+echo "Using SUMO: $(command -v sumo)"
+sumo --version | head -n 1
 
 echo "======================================"
 echo "Training All Berlin Intersections"
@@ -21,8 +28,8 @@ echo "======================================"
 echo ""
 
 # Arrays
-ALGORITHMS=(dqn ppo a2c)
-INTERSECTIONS=(A C H I J)
+ALGORITHMS=(dqn)
+INTERSECTIONS=(B)
 
 # Function to train a single intersection with an algorithm
 train_one() {

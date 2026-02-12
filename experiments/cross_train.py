@@ -6,12 +6,18 @@ from stable_baselines3 import DQN, PPO, A2C
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 import sumo_rl
 import os
+import traci
+import shutil
 
 from traffic_rl.callbacks import TrafficWandbCallback, ValidationCallback, run_baseline
 from traffic_rl.rewards import reward_minimize_queue, reward_vidali_waiting_time, reward_minimize_max_queue
 from traffic_rl.observations import GridObservationFunction
 
-os.environ["LIBSUMO_AS_TRACI"] = "1"
+os.environ["LIBSUMO_AS_TRACI"] = "0"
+
+SUMO_PREFIX = os.path.expanduser("~/opt/sumo-1.26.0")
+os.environ["SUMO_HOME"] = os.path.join(SUMO_PREFIX, "share", "sumo")
+os.environ["PATH"] = os.path.join(SUMO_PREFIX, "bin") + ":" + os.environ.get("PATH", "")
 
 # Algorithm configurations
 # Tuned for fair comparison across algorithms
@@ -123,7 +129,7 @@ def main(args):
     
     # 0. Compute Baseline First
     print("Computing baseline metrics...")
-    baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
+    #baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
     print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
     print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
     
@@ -212,7 +218,7 @@ def main(args):
             "eval_episode_seconds": eval_episode_seconds,
             "total_timesteps": args.total_timesteps,
             "normalize": args.normalize,
-            "baseline_metrics": baseline_metrics,
+            #"baseline_metrics": baseline_metrics,
             **hyperparams
         }
     )
@@ -223,7 +229,7 @@ def main(args):
     # 4. Setup callbacks
     callbacks = [
         TrafficWandbCallback(),
-        ValidationCallback(eval_env, baseline_metrics, eval_freq=STEPS_PER_EPISODE)
+        #ValidationCallback(eval_env, baseline_metrics, eval_freq=STEPS_PER_EPISODE)
     ]
     
     # 5. Train
@@ -357,6 +363,17 @@ if __name__ == "__main__":
         default=None,
         help="Custom name for this run (for Wandb)"
     )
-    
+
+    _real_start = traci.start
+
+    def traced_start(cmd, *args, **kwargs):
+        kwargs.setdefault("traceFile", "traci_trace.txt")
+        kwargs.setdefault("traceGetters", True)   # include getters too (more verbose)
+        return _real_start(cmd, *args, **kwargs)
+
+    traci.start = traced_start
+
+    print("Using sumo:", shutil.which("sumo"))
+
     args = parser.parse_args()
     main(args)
