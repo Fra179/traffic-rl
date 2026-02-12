@@ -4,20 +4,15 @@ import numpy as np
 import wandb
 from stable_baselines3 import DQN, PPO, A2C
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.callbacks import EvalCallback
 import sumo_rl
 import os
-import traci
-import shutil
 
 from traffic_rl.callbacks import TrafficWandbCallback, ValidationCallback, run_baseline
 from traffic_rl.rewards import reward_minimize_queue, reward_vidali_waiting_time, reward_minimize_max_queue
 from traffic_rl.observations import GridObservationFunction
 
-os.environ["LIBSUMO_AS_TRACI"] = "0"
-
-SUMO_PREFIX = os.path.expanduser("~/opt/sumo-1.26.0")
-os.environ["SUMO_HOME"] = os.path.join(SUMO_PREFIX, "share", "sumo")
-os.environ["PATH"] = os.path.join(SUMO_PREFIX, "bin") + ":" + os.environ.get("PATH", "")
+os.environ["LIBSUMO_AS_TRACI"] = "1"
 
 # Algorithm configurations
 # Tuned for fair comparison across algorithms
@@ -102,49 +97,26 @@ def main(args):
             # Get training duration
             train_tree = ET.parse(ROUTE_FILE)
             train_root = train_tree.getroot()
-            # Find comment with duration info (comments are not in list(root), need to check tree structure)
-            for comment in train_tree.iter():
-                if isinstance(comment, ET.Element) and comment.tag == ET.Comment:
-                    continue
-                # Comments come before the root children in the file, check raw text
-                break
-            
-            # Parse from file directly to get comments
-            with open(ROUTE_FILE, 'r') as f:
-                for line in f:
-                    if 'Total Duration:' in line:
-                        episode_seconds = int(line.split('Total Duration:')[1].split('s')[0].strip())
-                        print(f"  Detected training duration: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
-                        break
+            train_comment = train_root.getchildren()[0] if len(train_root.getchildren()) > 0 else None
+            if train_comment is not None and 'Total Duration:' in train_comment.text:
+                episode_seconds = int(train_comment.text.split('Total Duration:')[1].split('s')[0].strip())
+                print(f"  Detected training duration: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
             
             # Get eval duration
-            with open(EVAL_ROUTE_FILE, 'r') as f:
-                for line in f:
-                    if 'Total Duration:' in line:
-                        eval_episode_seconds = int(line.split('Total Duration:')[1].split('s')[0].strip())
-                        print(f"  Detected eval duration: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
-                        break
+            eval_tree = ET.parse(EVAL_ROUTE_FILE)
+            eval_root = eval_tree.getroot()
+            eval_comment = eval_root.getchildren()[0] if len(eval_root.getchildren()) > 0 else None
+            if eval_comment is not None and 'Total Duration:' in eval_comment.text:
+                eval_episode_seconds = int(eval_comment.text.split('Total Duration:')[1].split('s')[0].strip())
+                print(f"  Detected eval duration: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
         except Exception as e:
             print(f"  Warning: Could not auto-detect duration ({e}), using provided values")
     
     # 0. Compute Baseline First
     print("Computing baseline metrics...")
-    #baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
+    baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
     print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
     print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
-    
-    # SUMO collision handling options  
-    # Allow teleportation but prevent strict errors that crash the simulation
-    SUMO_ADDITIONAL_OPTIONS = (
-        "--ignore-junction-blocker -1 "
-        "--ignore-route-errors true "
-        "--collision.action warn "
-        "--collision.check-junctions false "
-        "--collision.mingap-factor 0 "
-        "--lanechange.duration 10 "
-        "--eager-insert true "
-        "--emergencydecel.warning-threshold 0"
-    )
     
     # 1. Setup Training Environment
     def make_env():
@@ -156,11 +128,7 @@ def main(args):
                        num_seconds=episode_seconds,
                        add_system_info=True,
                        reward_fn=reward_minimize_max_queue,
-                       observation_class=GridObservationFunction,
-                       sumo_warnings=False,
-                       time_to_teleport=300,
-                       max_depart_delay=-1,
-                       additional_sumo_cmd=SUMO_ADDITIONAL_OPTIONS)
+                       observation_class=GridObservationFunction)
     
     env = DummyVecEnv([make_env])
     
@@ -173,11 +141,7 @@ def main(args):
                         add_system_info=True,
                         reward_fn=reward_minimize_max_queue,
                         observation_class=GridObservationFunction,
-                        sumo_seed='42',
-                        sumo_warnings=False,
-                        time_to_teleport=300,
-                        max_depart_delay=-1,
-                        additional_sumo_cmd=SUMO_ADDITIONAL_OPTIONS)
+                        sumo_seed='42')
     
     # Optional: Apply normalization
     if args.normalize:
@@ -218,7 +182,7 @@ def main(args):
             "eval_episode_seconds": eval_episode_seconds,
             "total_timesteps": args.total_timesteps,
             "normalize": args.normalize,
-            #"baseline_metrics": baseline_metrics,
+            "baseline_metrics": baseline_metrics,
             **hyperparams
         }
     )
@@ -227,21 +191,35 @@ def main(args):
     STEPS_PER_EPISODE = episode_seconds // 5
     
     # 4. Setup callbacks
+    # Setup path for best model
+    model_name = f"{args.output_prefix}_{args.algorithm}_model" if args.output_prefix else f"{args.algorithm}_model"
+    best_model_path = f"weights/{model_name}_best"
+    os.makedirs("weights", exist_ok=True)
+    
     callbacks = [
         TrafficWandbCallback(),
-        #ValidationCallback(eval_env, baseline_metrics, eval_freq=STEPS_PER_EPISODE)
+        ValidationCallback(eval_env, baseline_metrics, eval_freq=STEPS_PER_EPISODE),
+        EvalCallback(
+            eval_env,
+            best_model_save_path=best_model_path,
+            log_path=f"logs/{model_name}",
+            eval_freq=STEPS_PER_EPISODE,
+            deterministic=True,
+            render=False,
+            verbose=1,
+            n_eval_episodes=1  # One full episode per eval (already long duration)
+        )
     ]
     
     # 5. Train
     try:
         model.learn(total_timesteps=args.total_timesteps, callback=callbacks)
     finally:
-        # Save model
-        model_name = f"{args.output_prefix}_{args.algorithm}_model" if args.output_prefix else f"{args.algorithm}_model"
-        model_path = f"weights/{model_name}"
-        os.makedirs("weights", exist_ok=True)
-        model.save(model_path)
-        print(f"Model saved to {model_path}")
+        # Save final model (for comparison with best)
+        final_model_path = f"weights/{model_name}_final"
+        model.save(final_model_path)
+        print(f"Final model saved to {final_model_path}")
+        print(f"Best model saved to {best_model_path}/best_model.zip")
         
         # Save normalization stats if used
         if args.normalize:
@@ -363,17 +341,6 @@ if __name__ == "__main__":
         default=None,
         help="Custom name for this run (for Wandb)"
     )
-
-    _real_start = traci.start
-
-    def traced_start(cmd, *args, **kwargs):
-        kwargs.setdefault("traceFile", "traci_trace.txt")
-        kwargs.setdefault("traceGetters", True)   # include getters too (more verbose)
-        return _real_start(cmd, *args, **kwargs)
-
-    traci.start = traced_start
-
-    print("Using sumo:", shutil.which("sumo"))
-
+    
     args = parser.parse_args()
     main(args)
