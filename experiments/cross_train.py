@@ -97,16 +97,18 @@ def main(args):
             # Get training duration
             train_tree = ET.parse(ROUTE_FILE)
             train_root = train_tree.getroot()
-            train_comment = train_root.getchildren()[0] if len(train_root.getchildren()) > 0 else None
-            if train_comment is not None and 'Total Duration:' in train_comment.text:
+            train_children = list(train_root)
+            train_comment = train_children[0] if len(train_children) > 0 else None
+            if train_comment is not None and hasattr(train_comment, 'text') and train_comment.text and 'Total Duration:' in train_comment.text:
                 episode_seconds = int(train_comment.text.split('Total Duration:')[1].split('s')[0].strip())
                 print(f"  Detected training duration: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
             
             # Get eval duration
             eval_tree = ET.parse(EVAL_ROUTE_FILE)
             eval_root = eval_tree.getroot()
-            eval_comment = eval_root.getchildren()[0] if len(eval_root.getchildren()) > 0 else None
-            if eval_comment is not None and 'Total Duration:' in eval_comment.text:
+            eval_children = list(eval_root)
+            eval_comment = eval_children[0] if len(eval_children) > 0 else None
+            if eval_comment is not None and hasattr(eval_comment, 'text') and eval_comment.text and 'Total Duration:' in eval_comment.text:
                 eval_episode_seconds = int(eval_comment.text.split('Total Duration:')[1].split('s')[0].strip())
                 print(f"  Detected eval duration: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
         except Exception as e:
