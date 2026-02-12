@@ -19,3 +19,4 @@ wandb/
 scenarios/berlin-small/output/
 logs/
 *.txt
+weights/
