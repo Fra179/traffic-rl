@@ -405,26 +405,123 @@ def generate_for_intersection(intersection_dir: str,
 
 
 if __name__ == "__main__":
+    import sys
+    
     # Configuration
     base_path = Path(__file__).parent
-    intersections = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
     
-    # Generate for all intersections
-    for intersection in intersections:
-        intersection_dir = base_path / intersection
-        if intersection_dir.exists():
-            try:
-                generate_for_intersection(
-                    intersection_dir=str(intersection_dir),
-                    segment_length_train=1800,  # 30 minutes per pattern
-                    segment_length_eval=600,     # 10 minutes per pattern
-                    base_veh_per_hour=2000
-                )
-            except Exception as e:
-                print(f"ERROR processing intersection {intersection}: {e}")
-        else:
-            print(f"WARNING: Intersection directory not found: {intersection_dir}")
+    # Parse command-line arguments
+    mode = "berlin"  # Default mode
+    if len(sys.argv) > 1:
+        mode = sys.argv[1].lower()
     
-    print(f"\n{'='*70}")
-    print("All intersections processed!")
-    print(f"{'='*70}")
+    if mode == "berlin":
+        # Generate demand for berlin-small-static.net.xml
+        net_file = base_path / "berlin-small-static.net.xml"
+        
+        if not net_file.exists():
+            print(f"ERROR: Network file not found: {net_file}")
+            exit(1)
+        
+        print(f"\n{'='*70}")
+        print(f"Generating traffic patterns for Berlin Small Static Network")
+        print(f"{'='*70}")
+        
+        # Generate training route file
+        train_file = base_path / "berlin-small-static-train.rou.xml"
+        segment_length_train = 1800  # 30 minutes per pattern
+        base_veh_per_hour = 20000
+        
+        total_veh_train = generate_scenarios(
+            net_file=str(net_file),
+            output_file=str(train_file),
+            segment_length=segment_length_train,
+            base_veh_per_hour=base_veh_per_hour,
+            seed=42,
+            max_patterns=15
+        )
+        
+        # Generate evaluation route file
+        eval_file = base_path / "berlin-small-static-eval.rou.xml"
+        segment_length_eval = 600  # 10 minutes per pattern
+        
+        total_veh_eval = generate_scenarios(
+            net_file=str(net_file),
+            output_file=str(eval_file),
+            segment_length=segment_length_eval,
+            base_veh_per_hour=base_veh_per_hour,
+            seed=999,
+            max_patterns=12  # Fewer patterns for quicker eval
+        )
+        
+        # Generate SUMO configuration files
+        print(f"\nGenerating SUMO configuration files...")
+        
+        # Parse network to get number of directions for end time calculation
+        connections = parse_network(str(net_file))
+        num_directions = len(group_routes_by_direction(connections))
+        
+        # Training config
+        train_config = base_path / "berlin-small-static-train.sumocfg"
+        train_end_time = len(select_most_significant_patterns(num_directions, 15)) * segment_length_train
+        create_sumo_config(
+            net_file=str(net_file),
+            route_file=str(train_file),
+            output_file=str(train_config),
+            end_time=train_end_time
+        )
+        
+        # Evaluation config
+        eval_config = base_path / "berlin-small-static-eval.sumocfg"
+        eval_end_time = len(select_most_significant_patterns(num_directions, 12)) * segment_length_eval
+        create_sumo_config(
+            net_file=str(net_file),
+            route_file=str(eval_file),
+            output_file=str(eval_config),
+            end_time=eval_end_time
+        )
+        
+        print(f"\n{'='*70}")
+        print("Generation complete!")
+        print(f"  Training: {train_file.name} ({total_veh_train} vehicles)")
+        print(f"  Evaluation: {eval_file.name} ({total_veh_eval} vehicles)")
+        print(f"{'='*70}")
+    
+    elif mode == "intersections":
+        # Generate for all sub-intersections
+        intersections = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+        
+        for intersection in intersections:
+            intersection_dir = base_path / intersection
+            if intersection_dir.exists():
+                try:
+                    generate_for_intersection(
+                        intersection_dir=str(intersection_dir),
+                        segment_length_train=1800,  # 30 minutes per pattern
+                        segment_length_eval=600,     # 10 minutes per pattern
+                        base_veh_per_hour=2000
+                    )
+                except Exception as e:
+                    print(f"ERROR processing intersection {intersection}: {e}")
+            else:
+                print(f"WARNING: Intersection directory not found: {intersection_dir}")
+        
+        print(f"\n{'='*70}")
+        print("All intersections processed!")
+        print(f"{'='*70}")
+    
+    elif mode == "all":
+        # Generate both static and intersections
+        print("Generating for BOTH static network and individual intersections...")
+        sys.argv = [sys.argv[0], "static"]
+        exec(open(__file__).read())
+        sys.argv = [sys.argv[0], "intersections"]
+        exec(open(__file__).read())
+    
+    else:
+        print(f"Usage: python {Path(__file__).name} [mode]")
+        print(f"  mode: 'static' (default), 'intersections', or 'all'")
+        print(f"    static       - Generate for berlin-small-static.net.xml")
+        print(f"    intersections - Generate for all sub-intersections (A-J)")
+        print(f"    all          - Generate for both")
+        exit(1)
