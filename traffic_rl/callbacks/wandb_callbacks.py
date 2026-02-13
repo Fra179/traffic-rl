@@ -91,19 +91,23 @@ class ValidationCallback(BaseCallback):
     Callback for periodic validation during training.
     
     Runs deterministic evaluation episodes and compares against baseline.
+    Saves best model based on throughput (total arrived vehicles).
     
     Args:
         eval_env: Separate evaluation environment
         baseline_metrics: Dictionary of baseline metrics
         eval_freq: How often to run validation (in steps)
+        best_model_save_path: Path to save best model (based on throughput)
         verbose: Verbosity level
     """
     
-    def __init__(self, eval_env, baseline_metrics, eval_freq=720, verbose=0):
+    def __init__(self, eval_env, baseline_metrics, eval_freq=720, best_model_save_path=None, verbose=0):
         super(ValidationCallback, self).__init__(verbose)
         self.eval_env = eval_env
         self.baseline_metrics = baseline_metrics
         self.eval_freq = eval_freq
+        self.best_model_save_path = best_model_save_path
+        self.best_throughput = -np.inf
 
     def _on_step(self) -> bool:
         if self.num_timesteps > 0 and self.num_timesteps % self.eval_freq == 0:
@@ -192,9 +196,23 @@ class ValidationCallback(BaseCallback):
             
             wandb.log(log_dict)
             
+            # Save best model based on throughput (total arrived vehicles)
+            if total_arrived > self.best_throughput:
+                prev_best = self.best_throughput
+                self.best_throughput = total_arrived
+                if self.best_model_save_path is not None:
+                    import os
+                    os.makedirs(self.best_model_save_path, exist_ok=True)
+                    self.model.save(f"{self.best_model_save_path}/best_model")
+                    if prev_best == -np.inf:
+                        print(f"  New best model saved! Throughput: {total_arrived}")
+                    else:
+                        print(f"  New best model saved! Throughput: {total_arrived} (previous: {int(prev_best)})")
+                    wandb.log({"validation/best_throughput": self.best_throughput})
+            
             if self.baseline_metrics:
-                print(f"Validation Complete. Arrived: {total_arrived} vs Baseline: {self.baseline_metrics['total_arrived']}")
+                print(f"Validation Complete. Arrived: {total_arrived} vs Baseline: {self.baseline_metrics['total_arrived']} (Best: {self.best_throughput})")
             else:
-                print(f"Validation Complete. Arrived: {total_arrived}")
+                print(f"Validation Complete. Arrived: {total_arrived} (Best: {self.best_throughput})")
             
         return True

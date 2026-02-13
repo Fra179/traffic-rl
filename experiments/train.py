@@ -4,7 +4,6 @@ import numpy as np
 import wandb
 from stable_baselines3 import DQN, PPO, A2C
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import EvalCallback
 import sumo_rl
 import os
 from gymnasium import spaces
@@ -85,32 +84,33 @@ class PettingZooToGymWrapper(gym.Env):
         self.pz_env.close()
 
 
-# Algorithm configurations
+# Algorithm configurations - base parameters (episode-dependent params set in main())
 # Tuned for fair comparison across algorithms
-# Episode: 3600s, delta_time: 5s = 720 steps/episode
 ALGORITHM_CONFIGS = {
     "dqn": {
         "class": DQN,
-        "hyperparams": {
+        "base_hyperparams": {
             "learning_rate": 0.0005,        # Standard for DQN
-            "buffer_size": 50000,            # ~70 episodes of experience
-            "learning_starts": 1000,         # ~1.4 episodes before learning
             "batch_size": 64,                # Standard batch size
-            "target_update_interval": 500,   # ~0.7 episodes
             "train_freq": 4,                 # Update every 4 steps
             "gradient_steps": 1,             # 1 gradient step per update
             "exploration_fraction": 0.3,     # Explore for 30% of training
             "exploration_initial_eps": 1.0,
             "exploration_final_eps": 0.05,
             "gamma": 0.99,                   # Discount factor
+        },
+        # Functions to calculate episode-dependent hyperparameters
+        "adaptive_hyperparams": lambda steps_per_ep: {
+            "buffer_size": max(50000, steps_per_ep * 10),  # At least 10 episodes
+            "learning_starts": steps_per_ep * 2,            # 2 full episodes before learning
+            "target_update_interval": steps_per_ep // 2,    # Update target every 0.5 episodes
         }
     },
     "ppo": {
         "class": PPO,
-        "hyperparams": {
+        "base_hyperparams": {
             "learning_rate": 0.0003,         # Standard for PPO
-            "n_steps": 2048,                 # ~2.8 episodes of data per update
-            "batch_size": 64,                # Minibatch size for updates
+            "batch_size": 128,               # Minibatch size for updates
             "n_epochs": 10,                  # 10 passes through collected data
             "gamma": 0.99,                   # Discount factor
             "gae_lambda": 0.95,              # GAE parameter for advantage estimation
@@ -118,19 +118,24 @@ ALGORITHM_CONFIGS = {
             "ent_coef": 0.01,                # Entropy bonus for exploration
             "vf_coef": 0.5,                  # Value function coefficient
             "max_grad_norm": 0.5,            # Gradient clipping
+        },
+        "adaptive_hyperparams": lambda steps_per_ep: {
+            "n_steps": steps_per_ep,         # 1 full episode of varied traffic before update
         }
     },
     "a2c": {
         "class": A2C,
-        "hyperparams": {
+        "base_hyperparams": {
             "learning_rate": 0.0005,         # Matched to DQN for comparison
-            "n_steps": 256,                  # ~0.36 episodes between updates (balanced)
             "gamma": 0.99,                   # Discount factor
             "gae_lambda": 0.95,              # GAE parameter (match PPO)
             "ent_coef": 0.01,                # Entropy bonus (match PPO)
             "vf_coef": 0.5,                  # Value function coefficient
             "max_grad_norm": 0.5,            # Gradient clipping
             "normalize_advantage": True,     # Stabilizes training
+        },
+        "adaptive_hyperparams": lambda steps_per_ep: {
+            "n_steps": steps_per_ep // 2,    # 0.5 episodes between updates
         }
     }
 }
@@ -195,6 +200,19 @@ def main(args):
     
     print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
     print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
+    
+    # Calculate steps per episode (assuming 5s delta_time)
+    STEPS_PER_EPISODE = episode_seconds // 5
+    print(f"Steps per episode: {STEPS_PER_EPISODE}")
+    
+    # Build adaptive hyperparameters based on episode length
+    hyperparams = algo_config["base_hyperparams"].copy()
+    adaptive_params = algo_config["adaptive_hyperparams"](STEPS_PER_EPISODE)
+    hyperparams.update(adaptive_params)
+    
+    print(f"\nAdaptive hyperparameters for {args.algorithm.upper()}:")
+    for key, value in adaptive_params.items():
+        print(f"  {key}: {value}")
     
     # 1. Setup Training Environment (Multi-agent or Single-agent)
     def make_env():
@@ -264,7 +282,6 @@ def main(args):
     
     # 2. Create the agent
     AlgorithmClass = algo_config["class"]
-    hyperparams = algo_config["hyperparams"].copy()
     
     # Allow command-line override of learning rate
     if args.learning_rate is not None:
@@ -310,9 +327,6 @@ def main(args):
         }
     )
     
-    # Calculate eval_freq based on delta_time (default is 5s)
-    STEPS_PER_EPISODE = episode_seconds // 5
-    
     # 4. Setup callbacks
     # Setup path for best model
     model_name = f"{args.output_prefix}_{args.algorithm}_model" if args.output_prefix else f"{args.algorithm}_model"
@@ -323,16 +337,11 @@ def main(args):
     
     callbacks = [
         TrafficWandbCallback(),
-        ValidationCallback(eval_env, baseline_metrics, eval_freq=STEPS_PER_EPISODE),
-        EvalCallback(
-            eval_env,
-            best_model_save_path=best_model_path,
-            log_path=f"logs/{model_name}",
+        ValidationCallback(
+            eval_env, 
+            baseline_metrics, 
             eval_freq=STEPS_PER_EPISODE,
-            deterministic=True,
-            render=False,
-            verbose=1,
-            n_eval_episodes=1  # One full episode per eval (already long duration)
+            best_model_save_path=best_model_path  # Save best based on throughput
         )
     ]
     
@@ -344,7 +353,7 @@ def main(args):
         final_model_path = f"weights/{model_name}_final"
         model.save(final_model_path)
         print(f"\nTraining complete!")
-        print(f"  Final model saved to {final_model_path}")
+        print(f"  Final model saved to {final_model_path}.zip")
         print(f"  Best model saved to {best_model_path}/best_model.zip")
         
         # Save normalization stats if used
