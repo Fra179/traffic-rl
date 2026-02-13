@@ -64,7 +64,7 @@ train_one() {
     
     echo "[$(date +%H:%M:%S)] Starting: $ALGORITHM on $INTERSECTION (${EPISODE_SECONDS}s episodes, $STEPS_PER_EPISODE steps/ep, $TOTAL_TIMESTEPS total steps)"
     
-    uv run experiments/cross_train.py \
+    uv run experiments/train.py \
         --algorithm "$ALGORITHM" \
         --scenario-dir "scenarios/berlin-small/$INTERSECTION" \
         --net-file "${INTERSECTION_LOWER}.net.xml" \

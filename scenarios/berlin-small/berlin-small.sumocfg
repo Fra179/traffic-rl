@@ -6,7 +6,7 @@
 <configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
-        <net-file value="berlin-small.net.xml"/>
+        <net-file value="berlin-small-static.net.xml"/>
         <route-files value="berlin-small.rou.xml"/>
     </input>
 
