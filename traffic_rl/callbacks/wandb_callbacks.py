@@ -26,48 +26,69 @@ class TrafficWandbCallback(BaseCallback):
         self.last_green_phases = {}
 
     def _on_step(self) -> bool:
-        infos = self.locals['infos'][0]
-        reward = self.locals['rewards'][0]  # Normalized Reward
-        
-        wait_time = infos.get('system_total_waiting_time', 0)
-        queue_len = infos.get('system_total_stopped', 0)
-        mean_speed = infos.get('system_mean_speed', 0)
+        infos_all = self.locals.get("infos", [])
+        rewards_all = self.locals.get("rewards", [])
+        if len(infos_all) == 0:
+            return True
+
+        # Aggregate across vectorized envs for stable logging with n_envs > 1.
+        reward = float(np.mean(rewards_all)) if len(rewards_all) > 0 else 0.0
+        wait_time = float(np.mean([info.get("system_total_waiting_time", 0) for info in infos_all]))
+        queue_len = float(np.mean([info.get("system_total_stopped", 0) for info in infos_all]))
+        mean_speed = float(np.mean([info.get("system_mean_speed", 0) for info in infos_all]))
         
         arrived_now = 0
         total_vehicles = 0
+
+        # Prefer metrics coming through info (subprocess-safe for vectorized envs).
+        info_total_vehicles = int(sum(info.get("system_total_vehicles", 0) for info in infos_all))
+        info_arrived_now = int(sum(info.get("system_arrived_now", 0) for info in infos_all))
+        if info_total_vehicles > 0:
+            total_vehicles = info_total_vehicles
+        if info_arrived_now > 0:
+            arrived_now = info_arrived_now
         
         try:
-            sumo_envs = self.training_env.envs
-            if len(sumo_envs) > 0:
-                env_unwrapped = sumo_envs[0].unwrapped
-                
-                # Handle multi-agent (PettingZooToGymWrapper) vs single-agent
-                if hasattr(env_unwrapped, 'pz_env'):
-                    # Multi-agent: access through PettingZoo parallel env
-                    pz_env = env_unwrapped.pz_env
-                    sumo_conn = pz_env.env.sumo if hasattr(pz_env, 'env') else pz_env.sumo
-                    ts_dict = pz_env.env.ts_ids if hasattr(pz_env, 'env') else pz_env.ts_ids
-                    ts_dict = {ts_id: pz_env.env._traffic_signals[ts_id] if hasattr(pz_env, 'env') else pz_env._traffic_signals[ts_id] for ts_id in ts_dict}
-                else:
-                    # Single-agent: direct access
+            # Works for DummyVecEnv and SubprocVecEnv when wrappers expose this method.
+            metrics_list = self.training_env.env_method("get_sumo_metrics")
+            if metrics_list:
+                metrics_total_vehicles = int(sum(m.get("total_vehicles", 0) for m in metrics_list))
+                metrics_arrived_now = int(sum(m.get("arrived_now", 0) for m in metrics_list))
+                if metrics_total_vehicles > 0:
+                    total_vehicles = metrics_total_vehicles
+                if metrics_arrived_now > 0:
+                    arrived_now = metrics_arrived_now
+                self.cumulative_switches = int(sum(m.get("cumulative_switches", 0) for m in metrics_list))
+        except Exception:
+            # Fallback for single-agent envs without get_sumo_metrics.
+            try:
+                sumo_envs = self.training_env.envs
+                if len(sumo_envs) > 0:
+                    env_unwrapped = sumo_envs[0].unwrapped
                     sumo_conn = env_unwrapped.sumo
-                    ts_dict = env_unwrapped.traffic_signals
-                
-                total_vehicles = sumo_conn.vehicle.getIDCount()
-                arrived_now = sumo_conn.simulation.getArrivedNumber()
-                
-                # Count switches
-                # Initialize on first seen
-                if not self.last_green_phases:
-                    self.last_green_phases = {ts: ts_obj.green_phase for ts, ts_obj in ts_dict.items()}
-                
-                for ts_id, ts_obj in ts_dict.items():
-                    curr_green = ts_obj.green_phase
-                    if curr_green != self.last_green_phases.get(ts_id, -1):
-                        self.cumulative_switches += 1
-                        self.last_green_phases[ts_id] = curr_green
-        except Exception as e:
-            pass
+                    total_vehicles = sumo_conn.vehicle.getIDCount()
+                    arrived_now = sumo_conn.simulation.getArrivedNumber()
+            except Exception:
+                pass
+
+        if total_vehicles == 0 and len(infos_all) > 0:
+            # Some env variants expose this directly in info; prefer non-zero if available.
+            total_vehicles = int(max(info.get("system_total_vehicles", 0) for info in infos_all))
+
+        if total_vehicles < 0:
+            total_vehicles = 0
+        if arrived_now < 0:
+            arrived_now = 0
+
+        if np.isnan(reward):
+            reward = 0.0
+
+        if np.isnan(wait_time):
+            wait_time = 0.0
+        if np.isnan(queue_len):
+            queue_len = 0.0
+        if np.isnan(mean_speed):
+            mean_speed = 0.0
 
         self.cumulative_arrived += arrived_now
 

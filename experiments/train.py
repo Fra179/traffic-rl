@@ -28,6 +28,8 @@ class PettingZooToGymWrapper(gym.Env):
         self.pz_env = pz_env
         self.warmup_steps = max(0, int(warmup_steps))
         self.agents = []
+        self.cumulative_switches = 0
+        self.last_green_phases = {}
         
         # Get a sample agent to determine observation and action spaces
         self.pz_env.reset()
@@ -43,6 +45,7 @@ class PettingZooToGymWrapper(gym.Env):
         observations, infos = self.pz_env.reset(seed=seed, options=options)
         self.agents = list(self.pz_env.agents)
         self.episode_rewards = {agent: 0 for agent in self.agents}
+        self.last_green_phases = self._get_current_green_phases()
 
         # Optional warmup: advance simulation before learning starts so the
         # network is not always observed from a cold/empty initial condition.
@@ -79,6 +82,7 @@ class PettingZooToGymWrapper(gym.Env):
         
         # Step the PettingZoo environment
         observations, rewards, terminations, truncations, infos = self.pz_env.step(actions)
+        self._update_switch_count()
         
         # Calculate aggregate reward
         total_reward = sum(rewards.values()) if rewards else 0
@@ -92,10 +96,56 @@ class PettingZooToGymWrapper(gym.Env):
         next_obs = observations.get(self.agents[0]) if not done else None
         
         info = infos.get(self.agents[0], {}) if infos else {}
+        try:
+            sumo_conn = self.pz_env.env.sumo if hasattr(self.pz_env, "env") else self.pz_env.sumo
+            info["system_total_vehicles"] = int(sumo_conn.vehicle.getIDCount())
+            info["system_arrived_now"] = int(sumo_conn.simulation.getArrivedNumber())
+        except Exception:
+            pass
         info['total_reward'] = total_reward
         info['avg_reward'] = avg_reward
         
         return next_obs, avg_reward, done, truncated, info
+
+    def get_sumo_metrics(self):
+        """Return SUMO metrics as plain data for cross-process callbacks."""
+        total_vehicles = 0
+        arrived_now = 0
+        try:
+            sumo_conn = self.pz_env.env.sumo if hasattr(self.pz_env, "env") else self.pz_env.sumo
+            total_vehicles = sumo_conn.vehicle.getIDCount()
+            arrived_now = sumo_conn.simulation.getArrivedNumber()
+        except Exception:
+            pass
+        return {
+            "total_vehicles": total_vehicles,
+            "arrived_now": arrived_now,
+            "cumulative_switches": self.cumulative_switches,
+        }
+
+    def _get_current_green_phases(self):
+        try:
+            if hasattr(self.pz_env, "env"):
+                ts_ids = self.pz_env.env.ts_ids
+                ts_dict = {ts_id: self.pz_env.env._traffic_signals[ts_id] for ts_id in ts_ids}
+            else:
+                ts_ids = self.pz_env.ts_ids
+                ts_dict = {ts_id: self.pz_env._traffic_signals[ts_id] for ts_id in ts_ids}
+            return {ts_id: ts_obj.green_phase for ts_id, ts_obj in ts_dict.items()}
+        except Exception:
+            return {}
+
+    def _update_switch_count(self):
+        current_green_phases = self._get_current_green_phases()
+        if not current_green_phases:
+            return
+        if not self.last_green_phases:
+            self.last_green_phases = current_green_phases
+            return
+        for ts_id, curr_green in current_green_phases.items():
+            if curr_green != self.last_green_phases.get(ts_id, curr_green):
+                self.cumulative_switches += 1
+        self.last_green_phases = current_green_phases
 
     @staticmethod
     def _coerce_action(action, action_space):
@@ -314,10 +364,66 @@ def main(args):
     hyperparams = algo_config["base_hyperparams"].copy()
     adaptive_params = algo_config["adaptive_hyperparams"](STEPS_PER_EPISODE)
     hyperparams.update(adaptive_params)
+
+    # Make adaptive params vectorization-aware so update cadence stays reasonable
+    # when num_timesteps is shared across parallel environments.
+    if args.n_envs > 1:
+        if args.algorithm == "dqn":
+            # Keep replay warmup and buffer sized to the total transitions generated
+            # across all environments.
+            hyperparams["buffer_size"] = max(hyperparams["buffer_size"], STEPS_PER_EPISODE * 10 * args.n_envs)
+            # SB3 tracks learning_starts in global timesteps; VecEnv already advances
+            # num_timesteps by n_envs each collector step.
+            hyperparams["learning_starts"] = STEPS_PER_EPISODE * 2
+
+            # With VecEnv, each collector step yields n_envs transitions.
+            # Increase gradient_steps to keep a similar update/data ratio.
+            hyperparams["train_freq"] = 1
+            hyperparams["gradient_steps"] = max(1, args.n_envs // 4)
+            # SB3 applies vector-env compensation when checking target updates, so
+            # keep this in global timestep units (do not multiply by n_envs here).
+            hyperparams["target_update_interval"] = max(500, STEPS_PER_EPISODE // 2)
+
+        elif args.algorithm in {"ppo", "a2c"}:
+            # Keep rollout size in a practical range:
+            # total_rollout_steps ~= n_steps * n_envs.
+            target_rollout_steps = min(max(2048, args.n_envs * 64), max(2048, STEPS_PER_EPISODE * 2))
+            n_steps_per_env = max(64, target_rollout_steps // args.n_envs)
+            # Do not exceed one episode worth of steps in a single env rollout.
+            n_steps_per_env = min(n_steps_per_env, STEPS_PER_EPISODE)
+            hyperparams["n_steps"] = int(n_steps_per_env)
+
+    # Keep adaptive choices compatible with the actual training budget for both
+    # single-agent and multi-agent runs (global timesteps in SB3 semantics).
+    if args.algorithm == "dqn":
+        # Ensure replay warmup does not consume nearly the whole run.
+        # Keep at least a minimal warmup, but leave room for meaningful updates.
+        budget_capped_learning_starts = max(1000, args.total_timesteps // 5)
+        hyperparams["learning_starts"] = min(hyperparams["learning_starts"], budget_capped_learning_starts)
+
+        # Keep target updates frequent enough within short runs.
+        hyperparams["target_update_interval"] = min(
+            hyperparams["target_update_interval"],
+            max(250, args.total_timesteps // 4)
+        )
     
     print(f"\nAdaptive hyperparameters for {args.algorithm.upper()}:")
     for key, value in adaptive_params.items():
         print(f"  {key}: {value}")
+    if args.n_envs > 1:
+        print("Vectorized adjustments:")
+        for key in sorted(hyperparams.keys()):
+            if key in adaptive_params and hyperparams[key] != adaptive_params[key]:
+                print(f"  {key}: {adaptive_params[key]} -> {hyperparams[key]}")
+
+        if args.algorithm in {"ppo", "a2c"}:
+            total_rollout = hyperparams["n_steps"] * args.n_envs
+            est_updates = max(1, args.total_timesteps // total_rollout)
+            print(f"  rollout per update: {hyperparams['n_steps']} x {args.n_envs} = {total_rollout} timesteps")
+            print(f"  expected policy updates: ~{est_updates}")
+        elif args.algorithm == "dqn":
+            print(f"  effective transitions per update trigger: {hyperparams['train_freq'] * args.n_envs}")
+            print(f"  gradient steps per trigger: {hyperparams['gradient_steps']}")
     
     # 1. Setup Training Environment (Multi-agent or Single-agent)
     # Assumes SUMO-RL default delta_time=5s (used elsewhere in this script).
@@ -437,6 +543,26 @@ def main(args):
             **hyperparams
         }
     )
+    
+    # Log baseline once at run start so it is always visible in charts,
+    # even before the first periodic validation callback fires.
+    if baseline_metrics:
+        baseline_log = {
+            "validation/step": 0,
+            "baseline/mean_waiting_time": baseline_metrics["mean_waiting_time"],
+            "baseline/mean_queue_length": baseline_metrics["mean_queue_length"],
+            "baseline/mean_speed": baseline_metrics["mean_speed"],
+            "baseline/total_arrived": baseline_metrics["total_arrived"],
+            "baseline/total_switches": baseline_metrics.get("total_switches", 0),
+        }
+        wandb.log(baseline_log, step=0)
+        wandb.summary.update({
+            "baseline/mean_waiting_time": baseline_metrics["mean_waiting_time"],
+            "baseline/mean_queue_length": baseline_metrics["mean_queue_length"],
+            "baseline/mean_speed": baseline_metrics["mean_speed"],
+            "baseline/total_arrived": baseline_metrics["total_arrived"],
+            "baseline/total_switches": baseline_metrics.get("total_switches", 0),
+        })
     
     # 4. Setup callbacks
     # Setup path for best model
