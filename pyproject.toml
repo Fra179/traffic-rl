@@ -7,23 +7,17 @@ name = "traffic-rl"
 version = "0.1.0"
 description = "Reinforcement Learning for Traffic Light Control"
 readme = "README.md"
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.10"
 dependencies = [
     "gymnasium>=1.2.3",
     "linear-rl>=0.1",
     "matplotlib>=3.10.8",
-    "numpy>=1.24.0,<2.0",
+    "numpy>=2.2.6",
     "pandas>=2.3.3",
-    "pettingzoo==1.23.0",
-    "ray[rllib]>=2.2.0",
-    "rich>=14.3.2",
     "stable-baselines3>=2.7.1",
     "sumo-rl>=1.4.5",
-    "supersuit>=3.9.0",
     "tensorboard>=2.20.0",
-    "tensorflow-probability>=0.18.0",
     "torch==2.10.0+cu126",
-    "tqdm>=4.67.3",
     "wandb>=0.24.2",
 ]
 

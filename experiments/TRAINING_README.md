@@ -274,9 +274,126 @@ Compare the results in Wandb to see which approach performs better!
 - Try adjusting learning rate or use PPO for better stability
 - Consider using `--normalize` for observation normalization
 
+## Heterogeneous Multi-Agent Evaluation
+
+The `evaluate_multi_agent.py` script allows you to evaluate **independently trained agents** together on a full network. This is useful when you train separate agents on individual intersections and want to see how they perform when coordinating on the complete traffic network.
+
+### Use Case: Berlin Small Network
+
+For the Berlin small scenario, you can:
+1. Train individual agents on each intersection (A-J) using their isolated scenarios
+2. Evaluate all trained agents together on the full berlin-small network
+
+### Training Individual Intersection Agents
+
+Use the `train_all_berlin.sh` script to train agents on each intersection:
+
+```bash
+# Train all intersections A-J with specified algorithm and episodes
+./train_all_berlin.sh ppo 50 15
+
+# This trains:
+# - scenarios/berlin-small/A with ppo -> weights/berlin_A_ppo_model_best/
+# - scenarios/berlin-small/B with ppo -> weights/berlin_B_ppo_model_best/
+# - ... and so on for C-J
+```
+
+Each intersection is trained independently with its own:
+- Network file (e.g., `a.net.xml`)
+- Training routes (`train_generated.rou.xml`)
+- Evaluation routes (`eval_generated.rou.xml`)
+
+### Evaluating All Agents Together
+
+After training, use `evaluate_all_berlin.sh` to test all agents on the full network:
+
+```bash
+# Evaluate PPO agents on full network, 10 episodes
+./evaluate_all_berlin.sh ppo 10
+
+# Evaluate DQN agents on full network with GUI
+./evaluate_all_berlin.sh dqn 20 --gui
+
+# With Wandb logging
+./evaluate_all_berlin.sh a2c 15 --use-wandb --run-name "berlin-heterogeneous-eval"
+```
+
+This script:
+1. Loads the trained model for each intersection (A-J)
+2. Creates a multi-agent environment on the full berlin-small network
+3. Maps each traffic light to its corresponding trained model
+4. Runs evaluation episodes where each agent uses its own policy
+
+### Manual Evaluation
+
+You can also call the evaluation script directly:
+
+```bash
+python experiments/evaluate_multi_agent.py \
+    --algorithm ppo \
+    --intersections A B C D E F G H I J \
+    --net-file scenarios/berlin-small/berlin-small-static.net.xml \
+    --route-file scenarios/berlin-small/berlin-small-static-eval.rou.xml \
+    --n-episodes 10 \
+    --episode-seconds 3600 \
+    --output-file evaluation_results/berlin_multiagent_ppo.json
+```
+
+### Heterogeneous vs Homogeneous Multi-Agent
+
+**Heterogeneous (evaluate_multi_agent.py)**:
+- Each agent has its **own trained policy**
+- Agents are trained separately on their local intersections
+- Each intersection specializes for its local traffic patterns
+- ✅ Better adaptation to intersection-specific conditions
+- ❌ No shared learning across intersections
+
+**Homogeneous (train.py --multiagent)**:
+- All agents share the **same policy** (parameter sharing)
+- Policy is trained on all intersections simultaneously
+- ✅ More sample efficient (learns from all agents)
+- ✅ Better generalization across similar intersections
+- ❌ May not specialize to unique intersection patterns
+
+### Traffic Light ID Mapping
+
+The evaluation script automatically maps intersection letters to their traffic light IDs:
+
+```python
+INTERSECTION_TO_TL_ID = {
+    'A': 'cluster_29784567_310818818',
+    'B': 'cluster_12614600_1860618754_...',
+    # ... and so on for C-J
+}
+```
+
+If your scenario has different traffic light IDs, update this mapping in `evaluate_multi_agent.py`.
+
+### Evaluation Output
+
+The script produces:
+- Console output with per-episode metrics
+- JSON results file (with `--output-file`)
+- Wandb logs (with `--use-wandb`)
+
+Example results:
+```
+EVALUATION RESULTS
+================================================================================
+Mean Reward: -125.45 ± 15.32
+Mean Episode Length: 720.0 steps
+
+Traffic Metrics:
+  Mean Waiting Time: 45.23 ± 3.12 s
+  Mean Total Stopped: 12.45 ± 1.23
+  Mean Speed: 8.67 ± 0.45 m/s
+================================================================================
+```
+
 ## Next Steps
 
 - Try different algorithms (DQN, PPO, A2C) in multi-agent mode
 - Experiment with larger scenarios (more intersections)
-- Compare single-agent vs multi-agent performance
+- Compare single-agent vs multi-agent vs heterogeneous performance
+- Train individual agents on isolated intersections and evaluate together
 - Tune hyperparameters for your specific scenario
