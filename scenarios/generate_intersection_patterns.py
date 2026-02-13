@@ -412,12 +412,12 @@ def generate_for_intersection(intersection_dir: str,
 if __name__ == "__main__":
     # Configuration for grid3x3 scenario
     base_path = Path(__file__).parent
-    intersection_dir = base_path / "grid2x2"
+    intersection_dir = base_path / "cross"
 
     generate_for_intersection(
         intersection_dir=str(intersection_dir),
         segment_length_train=480,
         segment_length_eval=240,
-        base_veh_per_hour=6500
+        base_veh_per_hour=2000
     )
 

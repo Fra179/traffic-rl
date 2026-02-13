@@ -143,6 +143,8 @@ class ValidationCallback(BaseCallback):
             wait_times = []
             queues = []
             speeds = []
+            total_arrived = 0
+            total_departed = 0
             total_switches = 0
             
             # Init phase tracking
@@ -174,8 +176,10 @@ class ValidationCallback(BaseCallback):
                         pz_env = env_unwrapped.pz_env
                         ts_ids = pz_env.env.ts_ids if hasattr(pz_env, 'env') else pz_env.ts_ids
                         ts_dict = {ts_id: pz_env.env._traffic_signals[ts_id] if hasattr(pz_env, 'env') else pz_env._traffic_signals[ts_id] for ts_id in ts_ids}
+                        sumo_conn = pz_env.env.sumo if hasattr(pz_env, 'env') else pz_env.sumo
                     else:
                         ts_dict = env_unwrapped.traffic_signals
+                        sumo_conn = env_unwrapped.sumo
                     
                     # Track switches
                     for ts_id, ts_obj in ts_dict.items():
@@ -183,30 +187,21 @@ class ValidationCallback(BaseCallback):
                         if curr != last_green_phases.get(ts_id, curr):
                             total_switches += 1
                             last_green_phases[ts_id] = curr
+
+                    # Accumulate throughput over the full episode.
+                    # SUMO getters are per-step counters, not episode totals.
+                    total_departed += int(sumo_conn.simulation.getDepartedNumber())
+                    info_arrived = info.get("system_arrived_now")
+                    if info_arrived is not None:
+                        total_arrived += int(info_arrived)
+                    else:
+                        total_arrived += int(sumo_conn.simulation.getArrivedNumber())
                 except:
                     pass
-            
-            # Get total arrived vehicles from SUMO after episode completes
-            try:
-                env_unwrapped = self.eval_env.unwrapped
-                if hasattr(env_unwrapped, 'pz_env'):
-                    pz_env = env_unwrapped.pz_env
-                    sumo_conn = pz_env.env.sumo if hasattr(pz_env, 'env') else pz_env.sumo
-                else:
-                    sumo_conn = env_unwrapped.sumo
-                
-                # Get total arrived from SUMO statistics (cumulative for the episode)
-                total_arrived = sumo_conn.simulation.getArrivedNumber()
-                # Also try departed as a sanity check
-                total_departed = sumo_conn.simulation.getDepartedNumber()
-            except Exception as e:
-                print(f"  Warning: Could not get arrival statistics: {e}")
-                total_arrived = 0
-                total_departed = 0
 
-            mean_wait = np.mean(wait_times)
-            mean_queue = np.mean(queues)
-            mean_speed = np.mean(speeds)
+            mean_wait = float(np.mean(wait_times)) if wait_times else 0.0
+            mean_queue = float(np.mean(queues)) if queues else 0.0
+            mean_speed = float(np.mean(speeds)) if speeds else 0.0
 
             # Log comparison
             log_dict = {
