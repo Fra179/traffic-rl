@@ -2,11 +2,13 @@ import argparse
 import gymnasium as gym
 import numpy as np
 import wandb
+import re
 from stable_baselines3 import DQN, PPO, A2C
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 import sumo_rl
 import os
 from gymnasium import spaces
+import xml.etree.ElementTree as ET
 
 from traffic_rl.callbacks import TrafficWandbCallback, ValidationCallback, run_baseline
 from traffic_rl.rewards import reward_minimize_queue, reward_vidali_waiting_time, reward_minimize_max_queue
@@ -21,9 +23,10 @@ class PettingZooToGymWrapper(gym.Env):
     Uses parameter sharing: all agents share the same policy.
     """
     
-    def __init__(self, pz_env):
+    def __init__(self, pz_env, warmup_steps=0):
         super().__init__()
         self.pz_env = pz_env
+        self.warmup_steps = max(0, int(warmup_steps))
         self.agents = []
         
         # Get a sample agent to determine observation and action spaces
@@ -40,6 +43,21 @@ class PettingZooToGymWrapper(gym.Env):
         observations, infos = self.pz_env.reset(seed=seed, options=options)
         self.agents = list(self.pz_env.agents)
         self.episode_rewards = {agent: 0 for agent in self.agents}
+
+        # Optional warmup: advance simulation before learning starts so the
+        # network is not always observed from a cold/empty initial condition.
+        for _ in range(self.warmup_steps):
+            if not self.agents:
+                break
+            warmup_actions = {}
+            for agent in self.agents:
+                agent_space = self.pz_env.action_space(agent)
+                warmup_actions[agent] = self._coerce_action(0, agent_space)
+            observations, _, terminations, truncations, infos = self.pz_env.step(warmup_actions)
+            if terminations and all(terminations.values()):
+                break
+            if truncations and all(truncations.values()):
+                break
         
         if self.agents:
             return observations[self.agents[0]], infos
@@ -52,8 +70,12 @@ class PettingZooToGymWrapper(gym.Env):
         if not self.agents:
             return None, 0, True, True, {}
         
-        # Use same action for all agents (parameter sharing)
-        actions = {agent: action for agent in self.agents}
+        # Use same action for all agents (parameter sharing), but cast to each
+        # agent's exact action space type/shape expected by PettingZoo.
+        actions = {}
+        for agent in self.agents:
+            agent_space = self.pz_env.action_space(agent)
+            actions[agent] = self._coerce_action(action, agent_space)
         
         # Step the PettingZoo environment
         observations, rewards, terminations, truncations, infos = self.pz_env.step(actions)
@@ -74,6 +96,56 @@ class PettingZooToGymWrapper(gym.Env):
         info['avg_reward'] = avg_reward
         
         return next_obs, avg_reward, done, truncated, info
+
+    @staticmethod
+    def _coerce_action(action, action_space):
+        """
+        Convert SB3 action outputs (often numpy arrays) to a valid action
+        object for the target Gymnasium action space.
+        """
+        if isinstance(action_space, spaces.Discrete):
+            if isinstance(action, np.ndarray):
+                if action.size == 0:
+                    return action_space.sample()
+                action = action.reshape(-1)[0]
+            try:
+                value = int(action)
+            except Exception:
+                return action_space.sample()
+            if action_space.contains(value):
+                return value
+            return action_space.sample()
+
+        if isinstance(action_space, spaces.MultiDiscrete):
+            try:
+                arr = np.asarray(action, dtype=np.int64).reshape(action_space.nvec.shape)
+            except Exception:
+                return action_space.sample()
+            if action_space.contains(arr):
+                return arr
+            return action_space.sample()
+
+        if isinstance(action_space, spaces.MultiBinary):
+            try:
+                arr = np.asarray(action, dtype=np.int8).reshape(action_space.shape)
+            except Exception:
+                return action_space.sample()
+            arr = np.clip(arr, 0, 1)
+            if action_space.contains(arr):
+                return arr
+            return action_space.sample()
+
+        if isinstance(action_space, spaces.Box):
+            try:
+                arr = np.asarray(action, dtype=action_space.dtype).reshape(action_space.shape)
+            except Exception:
+                return action_space.sample()
+            arr = np.clip(arr, action_space.low, action_space.high)
+            if action_space.contains(arr):
+                return arr
+            return action_space.sample()
+
+        return action if action_space.contains(action) else action_space.sample()
     
     def render(self):
         """Render the environment."""
@@ -141,6 +213,37 @@ ALGORITHM_CONFIGS = {
 }
 
 
+def detect_route_duration_seconds(route_file_path: str):
+    """
+    Detect route duration in seconds from a SUMO route file.
+    Priority:
+    1) "Total Duration: <N>s" comment anywhere in the file
+    2) max(<vehicle depart>) + 1 second fallback
+    """
+    with open(route_file_path, "r", encoding="utf-8") as f:
+        xml_text = f.read()
+
+    match = re.search(r"Total Duration:\s*(\d+)\s*s", xml_text)
+    if match:
+        return int(match.group(1)), "comment"
+
+    root = ET.fromstring(xml_text)
+    max_depart = 0.0
+    for vehicle in root.findall("vehicle"):
+        depart = vehicle.get("depart")
+        if depart is None:
+            continue
+        try:
+            max_depart = max(max_depart, float(depart))
+        except ValueError:
+            continue
+
+    if max_depart > 0:
+        return int(np.ceil(max_depart)) + 1, "max_depart"
+
+    return None, None
+
+
 def main(args):
     # Setup file paths
     if args.scenario_dir:
@@ -168,25 +271,25 @@ def main(args):
     if args.auto_duration:
         print("Auto-detecting episode duration from route files...")
         try:
-            import xml.etree.ElementTree as ET
-            
-            # Get training duration
-            train_tree = ET.parse(ROUTE_FILE)
-            train_root = train_tree.getroot()
-            train_children = list(train_root)
-            train_comment = train_children[0] if len(train_children) > 0 else None
-            if train_comment is not None and hasattr(train_comment, 'text') and train_comment.text and 'Total Duration:' in train_comment.text:
-                episode_seconds = int(train_comment.text.split('Total Duration:')[1].split('s')[0].strip())
-                print(f"  Detected training duration: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
-            
-            # Get eval duration
-            eval_tree = ET.parse(EVAL_ROUTE_FILE)
-            eval_root = eval_tree.getroot()
-            eval_children = list(eval_root)
-            eval_comment = eval_children[0] if len(eval_children) > 0 else None
-            if eval_comment is not None and hasattr(eval_comment, 'text') and eval_comment.text and 'Total Duration:' in eval_comment.text:
-                eval_episode_seconds = int(eval_comment.text.split('Total Duration:')[1].split('s')[0].strip())
-                print(f"  Detected eval duration: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
+            train_duration, train_source = detect_route_duration_seconds(ROUTE_FILE)
+            if train_duration is not None:
+                episode_seconds = train_duration
+                print(
+                    f"  Detected training duration: {episode_seconds}s "
+                    f"({episode_seconds/3600:.2f}h) via {train_source}"
+                )
+            else:
+                print("  Warning: Could not detect training duration, keeping provided value")
+
+            eval_duration, eval_source = detect_route_duration_seconds(EVAL_ROUTE_FILE)
+            if eval_duration is not None:
+                eval_episode_seconds = eval_duration
+                print(
+                    f"  Detected eval duration: {eval_episode_seconds}s "
+                    f"({eval_episode_seconds/3600:.2f}h) via {eval_source}"
+                )
+            else:
+                print("  Warning: Could not detect eval duration, keeping provided value")
         except Exception as e:
             print(f"  Warning: Could not auto-detect duration ({e}), using provided values")
     
@@ -217,6 +320,11 @@ def main(args):
         print(f"  {key}: {value}")
     
     # 1. Setup Training Environment (Multi-agent or Single-agent)
+    # Assumes SUMO-RL default delta_time=5s (used elsewhere in this script).
+    warmup_steps = max(0, args.warmup_seconds // 5)
+    if args.warmup_seconds > 0:
+        print(f"Applying warmup: {args.warmup_seconds}s ({warmup_steps} steps)")
+
     def make_env():
         if args.multiagent:
             # Use PettingZoo parallel environment for multi-agent
@@ -231,7 +339,7 @@ def main(args):
                 observation_class=GridObservationFunction
             )
             # Wrap PettingZoo env to make it compatible with SB3
-            return PettingZooToGymWrapper(pz_env)
+            return PettingZooToGymWrapper(pz_env, warmup_steps=warmup_steps)
         else:
             # Use standard Gym environment for single-agent
             return gym.make('sumo-rl-v0',
@@ -265,7 +373,7 @@ def main(args):
             observation_class=GridObservationFunction,
             sumo_seed='42'
         )
-        eval_env = PettingZooToGymWrapper(pz_eval_env)
+        eval_env = PettingZooToGymWrapper(pz_eval_env, warmup_steps=warmup_steps)
     else:
         eval_env = gym.make('sumo-rl-v0',
                             net_file=NET_FILE,
@@ -324,6 +432,7 @@ def main(args):
             "eval_episode_seconds": eval_episode_seconds,
             "total_timesteps": args.total_timesteps,
             "normalize": args.normalize,
+            "warmup_seconds": args.warmup_seconds,
             "baseline_metrics": baseline_metrics,
             **hyperparams
         }
@@ -458,6 +567,13 @@ if __name__ == "__main__":
         type=int,
         default=5400,
         help="Duration of each evaluation episode in seconds (ignored if --auto-duration)"
+    )
+
+    parser.add_argument(
+        "--warmup-seconds",
+        type=int,
+        default=0,
+        help="Advance simulation this many seconds after each reset before learning/evaluation starts"
     )
     
     # Training configuration
