@@ -3,16 +3,87 @@ import gymnasium as gym
 import numpy as np
 import wandb
 from stable_baselines3 import DQN, PPO, A2C
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 from stable_baselines3.common.callbacks import EvalCallback
 import sumo_rl
 import os
+from gymnasium import spaces
 
 from traffic_rl.callbacks import TrafficWandbCallback, ValidationCallback, run_baseline
 from traffic_rl.rewards import reward_minimize_queue, reward_vidali_waiting_time, reward_minimize_max_queue
 from traffic_rl.observations import GridObservationFunction
 
 os.environ["LIBSUMO_AS_TRACI"] = "1"
+
+
+class PettingZooToGymWrapper(gym.Env):
+    """
+    Wrapper to convert PettingZoo parallel environment to Gym environment.
+    Uses parameter sharing: all agents share the same policy.
+    """
+    
+    def __init__(self, pz_env):
+        super().__init__()
+        self.pz_env = pz_env
+        self.agents = []
+        
+        # Get a sample agent to determine observation and action spaces
+        self.pz_env.reset()
+        if self.pz_env.agents:
+            sample_agent = self.pz_env.agents[0]
+            self.observation_space = self.pz_env.observation_space(sample_agent)
+            self.action_space = self.pz_env.action_space(sample_agent)
+        
+        self.episode_rewards = {}
+        
+    def reset(self, seed=None, options=None):
+        """Reset the environment and return the first agent's observation."""
+        observations, infos = self.pz_env.reset(seed=seed, options=options)
+        self.agents = list(self.pz_env.agents)
+        self.episode_rewards = {agent: 0 for agent in self.agents}
+        
+        if self.agents:
+            return observations[self.agents[0]], infos
+        return None, infos
+    
+    def step(self, action):
+        """
+        Execute action for all agents (parameter sharing).
+        """
+        if not self.agents:
+            return None, 0, True, True, {}
+        
+        # Use same action for all agents (parameter sharing)
+        actions = {agent: action for agent in self.agents}
+        
+        # Step the PettingZoo environment
+        observations, rewards, terminations, truncations, infos = self.pz_env.step(actions)
+        
+        # Calculate aggregate reward
+        total_reward = sum(rewards.values()) if rewards else 0
+        avg_reward = total_reward / len(self.agents) if self.agents else 0
+        
+        # Check if episode is done
+        done = all(terminations.values()) if terminations else True
+        truncated = all(truncations.values()) if truncations else False
+        
+        # Return first agent's observation
+        next_obs = observations.get(self.agents[0]) if not done else None
+        
+        info = infos.get(self.agents[0], {}) if infos else {}
+        info['total_reward'] = total_reward
+        info['avg_reward'] = avg_reward
+        
+        return next_obs, avg_reward, done, truncated, info
+    
+    def render(self):
+        """Render the environment."""
+        return self.pz_env.render()
+    
+    def close(self):
+        """Close the environment."""
+        self.pz_env.close()
+
 
 # Algorithm configurations
 # Tuned for fair comparison across algorithms
@@ -114,36 +185,77 @@ def main(args):
         except Exception as e:
             print(f"  Warning: Could not auto-detect duration ({e}), using provided values")
     
-    # 0. Compute Baseline First
-    print("Computing baseline metrics...")
-    baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
+    # 0. Compute Baseline First (skip for multi-agent as it requires single-agent env)
+    baseline_metrics = {}
+    if not args.multiagent:
+        print("Computing baseline metrics...")
+        baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
+    else:
+        print("Skipping baseline computation for multi-agent mode (not supported yet)")
+    
     print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
     print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
     
-    # 1. Setup Training Environment
+    # 1. Setup Training Environment (Multi-agent or Single-agent)
     def make_env():
-        return gym.make('sumo-rl-v0',
-                       net_file=NET_FILE,
-                       route_file=ROUTE_FILE,
-                       out_csv_name=f"outputs/{args.output_prefix}_{args.algorithm}_queue_run" if args.output_prefix else f"outputs/{args.algorithm}_queue_run",
-                       use_gui=args.gui,
-                       num_seconds=episode_seconds,
-                       add_system_info=True,
-                       reward_fn=reward_minimize_max_queue,
-                       observation_class=GridObservationFunction)
+        if args.multiagent:
+            # Use PettingZoo parallel environment for multi-agent
+            pz_env = sumo_rl.parallel_env(
+                net_file=NET_FILE,
+                route_file=ROUTE_FILE,
+                out_csv_name=f"outputs/{args.output_prefix}_{args.algorithm}_queue_run" if args.output_prefix else None,
+                use_gui=args.gui,
+                num_seconds=episode_seconds,
+                add_system_info=True,
+                reward_fn=reward_minimize_max_queue,
+                observation_class=GridObservationFunction
+            )
+            # Wrap PettingZoo env to make it compatible with SB3
+            return PettingZooToGymWrapper(pz_env)
+        else:
+            # Use standard Gym environment for single-agent
+            return gym.make('sumo-rl-v0',
+                           net_file=NET_FILE,
+                           route_file=ROUTE_FILE,
+                           out_csv_name=f"outputs/{args.output_prefix}_{args.algorithm}_queue_run" if args.output_prefix else None,
+                           use_gui=args.gui,
+                           num_seconds=episode_seconds,
+                           add_system_info=True,
+                           reward_fn=reward_minimize_max_queue,
+                           observation_class=GridObservationFunction)
     
-    env = DummyVecEnv([make_env])
+    # Create vectorized environment with support for parallel environments
+    if args.n_envs > 1:
+        print(f"Creating {args.n_envs} parallel training environments with SubprocVecEnv...")
+        env = SubprocVecEnv([make_env for _ in range(args.n_envs)])
+    else:
+        print("Creating single training environment with DummyVecEnv...")
+        env = DummyVecEnv([make_env])
     
-    # Setup Evaluation Environment (Separate instance)
-    eval_env = gym.make('sumo-rl-v0',
-                        net_file=NET_FILE,
-                        route_file=EVAL_ROUTE_FILE,
-                        use_gui=False,
-                        num_seconds=eval_episode_seconds,
-                        add_system_info=True,
-                        reward_fn=reward_minimize_max_queue,
-                        observation_class=GridObservationFunction,
-                        sumo_seed='42')
+    # Setup Evaluation Environment (Single separate instance, no GUI)
+    print("Creating evaluation environment...")
+    if args.multiagent:
+        pz_eval_env = sumo_rl.parallel_env(
+            net_file=NET_FILE,
+            route_file=EVAL_ROUTE_FILE,
+            use_gui=False,
+            num_seconds=eval_episode_seconds,
+            add_system_info=True,
+            reward_fn=reward_minimize_max_queue,
+            observation_class=GridObservationFunction,
+            sumo_seed='42'
+        )
+        eval_env = PettingZooToGymWrapper(pz_eval_env)
+    else:
+        eval_env = gym.make('sumo-rl-v0',
+                            net_file=NET_FILE,
+                            route_file=EVAL_ROUTE_FILE,
+                            use_gui=False,
+                            num_seconds=eval_episode_seconds,
+                            add_system_info=True,
+                            reward_fn=reward_minimize_max_queue,
+                            observation_class=GridObservationFunction,
+                            sumo_seed='42')
     
     # Optional: Apply normalization
     if args.normalize:
@@ -165,10 +277,16 @@ def main(args):
         **hyperparams
     )
     
-    print(f"Starting {args.algorithm.upper()} training...")
+    mode_str = "MULTI-AGENT" if args.multiagent else "SINGLE-AGENT"
+    print(f"\nStarting {args.algorithm.upper()} training in {mode_str} mode...")
+    print(f"  Algorithm: {args.algorithm.upper()}")
+    print(f"  Number of parallel environments: {args.n_envs}")
+    print(f"  Total timesteps: {args.total_timesteps}")
     
     # 3. Initialize Wandb
     run_name = f"{args.algorithm}-{args.run_name}" if args.run_name else f"{args.algorithm}-queue"
+    if args.multiagent:
+        run_name = f"ma-{run_name}"  # Prefix with 'ma' for multi-agent
     
     wandb.init(
         entity="fds-final-project",
@@ -176,6 +294,9 @@ def main(args):
         name=run_name,
         config={
             "algorithm": args.algorithm,
+            "multiagent": args.multiagent,
+            "parameter_sharing": args.multiagent,  # Currently always True for multi-agent
+            "n_envs": args.n_envs,
             "scenario_dir": args.scenario_dir if args.scenario_dir else "scenarios/cross_dynamic",
             "net_file": NET_FILE,
             "route_file": ROUTE_FILE,
@@ -195,6 +316,8 @@ def main(args):
     # 4. Setup callbacks
     # Setup path for best model
     model_name = f"{args.output_prefix}_{args.algorithm}_model" if args.output_prefix else f"{args.algorithm}_model"
+    if args.multiagent:
+        model_name = f"{model_name}_multiagent"
     best_model_path = f"weights/{model_name}_best"
     os.makedirs("weights", exist_ok=True)
     
@@ -215,18 +338,22 @@ def main(args):
     
     # 5. Train
     try:
-        model.learn(total_timesteps=args.total_timesteps, callback=callbacks)
+        model.learn(total_timesteps=args.total_timesteps, callback=callbacks, progress_bar=True)
     finally:
         # Save final model (for comparison with best)
         final_model_path = f"weights/{model_name}_final"
         model.save(final_model_path)
-        print(f"Final model saved to {final_model_path}")
-        print(f"Best model saved to {best_model_path}/best_model.zip")
+        print(f"\nTraining complete!")
+        print(f"  Final model saved to {final_model_path}")
+        print(f"  Best model saved to {best_model_path}/best_model.zip")
         
         # Save normalization stats if used
         if args.normalize:
             norm_name = f"{args.output_prefix}_{args.algorithm}_vec_normalize.pkl" if args.output_prefix else f"{args.algorithm}_vec_normalize.pkl"
+            if args.multiagent:
+                norm_name = f"multiagent_{norm_name}"
             env.save(f"weights/{norm_name}")
+            print(f"  Normalization stats saved to weights/{norm_name}")
         
         # Cleanup
         eval_env.close()
@@ -238,7 +365,23 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Train traffic light controller with various RL algorithms from Stable Baselines3"
+        description="Train traffic light controller with various RL algorithms (single or multi-agent)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    # Multi-agent configuration
+    parser.add_argument(
+        "--multiagent",
+        action="store_true",
+        help="Enable multi-agent training using PettingZoo parallel environment with parameter sharing"
+    )
+    
+    # Parallel training configuration
+    parser.add_argument(
+        "--n-envs",
+        type=int,
+        default=1,
+        help="Number of parallel training environments (use SubprocVecEnv if > 1)"
     )
     
     # Scenario configuration
@@ -246,28 +389,28 @@ if __name__ == "__main__":
         "--scenario-dir",
         type=str,
         default=None,
-        help="Path to scenario directory (default: scenarios/cross_dynamic)"
+        help="Path to scenario directory"
     )
     
     parser.add_argument(
         "--net-file",
         type=str,
         default=None,
-        help="Network file name relative to scenario-dir (default: auto-detect or net.xml)"
+        help="Network file name relative to scenario-dir"
     )
     
     parser.add_argument(
         "--train-route-file",
         type=str,
         default=None,
-        help="Training route file name relative to scenario-dir (default: train.rou.xml)"
+        help="Training route file name relative to scenario-dir"
     )
     
     parser.add_argument(
         "--eval-route-file",
         type=str,
         default=None,
-        help="Evaluation route file name relative to scenario-dir (default: eval.rou.xml)"
+        help="Evaluation route file name relative to scenario-dir"
     )
     
     parser.add_argument(
@@ -290,14 +433,14 @@ if __name__ == "__main__":
         "--episode-seconds",
         type=int,
         default=16200,
-        help="Duration of each training episode in seconds (default: 16200s = 4.5 hours, ignored if --auto-duration)"
+        help="Duration of each training episode in seconds (ignored if --auto-duration)"
     )
     
     parser.add_argument(
         "--eval-episode-seconds",
         type=int,
         default=5400,
-        help="Duration of each evaluation episode in seconds (default: 5400s = 1.5 hours, ignored if --auto-duration)"
+        help="Duration of each evaluation episode in seconds (ignored if --auto-duration)"
     )
     
     # Training configuration
