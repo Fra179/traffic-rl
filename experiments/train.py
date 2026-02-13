@@ -190,13 +190,9 @@ def main(args):
         except Exception as e:
             print(f"  Warning: Could not auto-detect duration ({e}), using provided values")
     
-    # 0. Compute Baseline First (skip for multi-agent as it requires single-agent env)
-    baseline_metrics = {}
-    if not args.multiagent:
-        print("Computing baseline metrics...")
-        baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
-    else:
-        print("Skipping baseline computation for multi-agent mode (not supported yet)")
+    # 0. Compute Baseline First (uses single-agent env for both single and multi-agent training)
+    print("Computing baseline metrics...")
+    baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
     
     print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
     print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
