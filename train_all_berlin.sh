@@ -7,8 +7,8 @@
 #   ./train_all_berlin.sh 20           # Train all with 20 episodes, 8 parallel
 #   ./train_all_berlin.sh 10 4         # Train all with 10 episodes, 4 parallel
 
-NUM_EPISODES=${1:-10}
-MAX_PARALLEL=${2:-16}
+NUM_EPISODES=${1:-50}
+MAX_PARALLEL=${2:-15}
 DELTA_TIME=5  # Default delta_time from cross_train.py
 
 # export CUDA_VISIBLE_DEVICES=""
