@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Auto-generated Traffic Pattern Library -->
 <!-- Total Duration: 13500s (3.8 hours) -->
-<!-- Network: grid3x3_tls.net.xml -->
+<!-- Network: grid2x2.net.xml -->
 <routes>
     <vType id="passenger" accel="0.8" decel="4.5" length="5.0" minGap="2.5" maxSpeed="13.89" vClass="passenger" speedFactor="1.0" speedDev="0.1" jmIgnoreJunctionFoeProb="1.0" jmIgnoreKeepClearTime="-1" />
 

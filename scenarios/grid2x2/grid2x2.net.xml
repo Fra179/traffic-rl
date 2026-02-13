@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-02-13T16:31:33.097900+01:00 by Eclipse SUMO netgenerate 1.25.0
+<!-- generated on 2026-02-13T16:39:14.319031+01:00 by Eclipse SUMO netgenerate 1.25.0
 <netgenerateConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netgenerateConfiguration.xsd">
 
     <grid_network>
@@ -11,7 +11,7 @@
     </grid_network>
 
     <output>
-        <output-file value="grid3x3_tls.net.xml"/>
+        <output-file value="grid2x2.net.xml"/>
     </output>
 
     <processing>
