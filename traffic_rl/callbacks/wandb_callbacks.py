@@ -40,12 +40,23 @@ class TrafficWandbCallback(BaseCallback):
             sumo_envs = self.training_env.envs
             if len(sumo_envs) > 0:
                 env_unwrapped = sumo_envs[0].unwrapped
-                sumo_conn = env_unwrapped.sumo
+                
+                # Handle multi-agent (PettingZooToGymWrapper) vs single-agent
+                if hasattr(env_unwrapped, 'pz_env'):
+                    # Multi-agent: access through PettingZoo parallel env
+                    pz_env = env_unwrapped.pz_env
+                    sumo_conn = pz_env.env.sumo if hasattr(pz_env, 'env') else pz_env.sumo
+                    ts_dict = pz_env.env.ts_ids if hasattr(pz_env, 'env') else pz_env.ts_ids
+                    ts_dict = {ts_id: pz_env.env._traffic_signals[ts_id] if hasattr(pz_env, 'env') else pz_env._traffic_signals[ts_id] for ts_id in ts_dict}
+                else:
+                    # Single-agent: direct access
+                    sumo_conn = env_unwrapped.sumo
+                    ts_dict = env_unwrapped.traffic_signals
+                
                 total_vehicles = sumo_conn.vehicle.getIDCount()
                 arrived_now = sumo_conn.simulation.getArrivedNumber()
                 
                 # Count switches
-                ts_dict = env_unwrapped.traffic_signals
                 # Initialize on first seen
                 if not self.last_green_phases:
                     self.last_green_phases = {ts: ts_obj.green_phase for ts, ts_obj in ts_dict.items()}
@@ -112,7 +123,14 @@ class ValidationCallback(BaseCallback):
             
             # Init phase tracking
             try:
-                ts_dict = self.eval_env.unwrapped.traffic_signals
+                env_unwrapped = self.eval_env.unwrapped
+                # Handle multi-agent (PettingZooToGymWrapper) vs single-agent
+                if hasattr(env_unwrapped, 'pz_env'):
+                    pz_env = env_unwrapped.pz_env
+                    ts_ids = pz_env.env.ts_ids if hasattr(pz_env, 'env') else pz_env.ts_ids
+                    ts_dict = {ts_id: pz_env.env._traffic_signals[ts_id] if hasattr(pz_env, 'env') else pz_env._traffic_signals[ts_id] for ts_id in ts_ids}
+                else:
+                    ts_dict = env_unwrapped.traffic_signals
                 last_green_phases = {ts: ts_obj.green_phase for ts, ts_obj in ts_dict.items()}
             except:
                 last_green_phases = {}
@@ -126,10 +144,20 @@ class ValidationCallback(BaseCallback):
                 speeds.append(info.get('system_mean_speed', 0))
                 
                 try:
-                    total_arrived += self.eval_env.unwrapped.sumo.simulation.getArrivedNumber()
+                    env_unwrapped = self.eval_env.unwrapped
+                    # Handle multi-agent (PettingZooToGymWrapper) vs single-agent
+                    if hasattr(env_unwrapped, 'pz_env'):
+                        pz_env = env_unwrapped.pz_env
+                        sumo_conn = pz_env.env.sumo if hasattr(pz_env, 'env') else pz_env.sumo
+                        ts_ids = pz_env.env.ts_ids if hasattr(pz_env, 'env') else pz_env.ts_ids
+                        ts_dict = {ts_id: pz_env.env._traffic_signals[ts_id] if hasattr(pz_env, 'env') else pz_env._traffic_signals[ts_id] for ts_id in ts_ids}
+                    else:
+                        sumo_conn = env_unwrapped.sumo
+                        ts_dict = env_unwrapped.traffic_signals
+                    
+                    total_arrived += sumo_conn.simulation.getArrivedNumber()
                     
                     # Track switches
-                    ts_dict = self.eval_env.unwrapped.traffic_signals
                     for ts_id, ts_obj in ts_dict.items():
                         curr = ts_obj.green_phase
                         if curr != last_green_phases.get(ts_id, curr):
