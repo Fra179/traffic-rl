@@ -429,7 +429,7 @@ if __name__ == "__main__":
         
         # Generate training route file
         train_file = base_path / "berlin-small-static-train.rou.xml"
-        segment_length_train = 1800  # 30 minutes per pattern
+        segment_length_train = 900  # 15 minutes per pattern (15 patterns × 900s = 13,500s total)
         base_veh_per_hour = 20000
         
         total_veh_train = generate_scenarios(

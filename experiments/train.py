@@ -205,6 +205,12 @@ def main(args):
     STEPS_PER_EPISODE = episode_seconds // 5
     print(f"Steps per episode: {STEPS_PER_EPISODE}")
     
+    # Warn if not using auto-duration (hyperparams may be mismatched)
+    if not args.auto_duration:
+        print(f"\n⚠️  WARNING: Using default episode duration ({episode_seconds}s).")
+        print(f"   If your route files have different durations, use --auto-duration flag!")
+        print(f"   Adaptive hyperparameters are based on this duration.\n")
+    
     # Build adaptive hyperparameters based on episode length
     hyperparams = algo_config["base_hyperparams"].copy()
     adaptive_params = algo_config["adaptive_hyperparams"](STEPS_PER_EPISODE)
@@ -335,12 +341,18 @@ def main(args):
     best_model_path = f"weights/{model_name}_best"
     os.makedirs("weights", exist_ok=True)
     
+    # Scale eval frequency by number of parallel environments
+    # (num_timesteps increments by n_envs each step, so we need to scale accordingly)
+    eval_freq_timesteps = STEPS_PER_EPISODE * args.n_envs
+    print(f"\nEvaluation frequency: {eval_freq_timesteps} timesteps (1 episode × {args.n_envs} envs)")
+    print(f"Expected number of evaluations: {args.total_timesteps // eval_freq_timesteps}")
+    
     callbacks = [
         TrafficWandbCallback(),
         ValidationCallback(
             eval_env, 
             baseline_metrics, 
-            eval_freq=STEPS_PER_EPISODE,
+            eval_freq=eval_freq_timesteps,
             best_model_save_path=best_model_path  # Save best based on throughput
         )
     ]
