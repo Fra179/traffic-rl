@@ -6,7 +6,7 @@
     </input>
     <time>
         <begin value="0"/>
-        <end value="6750"/>
+        <end value="7200"/>
     </time>
     <processing>
         <time-to-teleport value="-1"/>

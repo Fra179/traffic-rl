@@ -416,8 +416,8 @@ if __name__ == "__main__":
 
     generate_for_intersection(
         intersection_dir=str(intersection_dir),
-        segment_length_train=450,  # 30 minutes per pattern
-        segment_length_eval=600,     # 10 minutes per pattern
-        base_veh_per_hour=8000      # Adjust to 1200 for grid network
+        segment_length_train=480,
+        segment_length_eval=240,
+        base_veh_per_hour=6500
     )
 
