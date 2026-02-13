@@ -410,17 +410,14 @@ def generate_for_intersection(intersection_dir: str,
 
 
 if __name__ == "__main__":
-    # Configuration for grid4x4 scenario
+    # Configuration for grid3x3 scenario
     base_path = Path(__file__).parent
-    intersection_dir = base_path  # Use current directory (scenarios/grid4x4)
+    intersection_dir = base_path / "grid2x2"
 
     generate_for_intersection(
         intersection_dir=str(intersection_dir),
-        segment_length_train=1800,  # 30 minutes per pattern
+        segment_length_train=900,  # 30 minutes per pattern
         segment_length_eval=600,     # 10 minutes per pattern
-        base_veh_per_hour=2500      # Adjust to 1200 for grid network
+        base_veh_per_hour=8000      # Adjust to 1200 for grid network
     )
 
-    print(f"\n{'='*70}")
-    print("Grid4x4 patterns generated!")
-    print(f"{'='*70}")
