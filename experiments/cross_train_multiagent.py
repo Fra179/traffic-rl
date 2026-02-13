@@ -21,10 +21,11 @@ class PettingZooToGymWrapper(gym.Env):
     Wrapper to convert PettingZoo parallel environment to Gym environment.
     Uses parameter sharing: all agents share the same policy.
     
-    This wrapper handles multiple agents by:
-    - Processing agents sequentially (one action at a time)
+    This wrapper handles HETEROGENEOUS agents by:
+    - Finding the maximum observation and action dimensions across all agents
+    - Padding observations with zeros to match max dimension
+    - Clipping actions to each agent's valid range
     - Accumulating rewards across all agents
-    - Terminating when all agents are done
     """
     
     def __init__(self, pz_env):
@@ -32,20 +33,46 @@ class PettingZooToGymWrapper(gym.Env):
         self.pz_env = pz_env
         self.agents = []
         
-        # Get a sample agent to determine observation and action spaces
-        # Assumes all agents have the same spaces (homogeneous agents)
+        # Reset to get all agents
         self.pz_env.reset()
-        if self.pz_env.agents:
-            sample_agent = self.pz_env.agents[0]
-            self.observation_space = self.pz_env.observation_space(sample_agent)
-            self.action_space = self.pz_env.action_space(sample_agent)
+        self.agents = list(self.pz_env.agents)
+        
+        if self.agents:
+            # Find maximum observation and action dimensions across all agents
+            obs_dims = []
+            action_dims = []
+            for agent in self.agents:
+                obs_space = self.pz_env.observation_space(agent)
+                act_space = self.pz_env.action_space(agent)
+                obs_dims.append(obs_space.shape[0])
+                action_dims.append(act_space.n)
+            
+            self.max_obs_dim = max(obs_dims)
+            self.max_action_dim = max(action_dims)
+            
+            # Store individual agent spaces for validation
+            self.agent_obs_spaces = {agent: self.pz_env.observation_space(agent) for agent in self.agents}
+            self.agent_action_spaces = {agent: self.pz_env.action_space(agent) for agent in self.agents}
+            
+            # Create unified spaces using max dimensions
+            self.observation_space = spaces.Box(
+                low=-np.inf, 
+                high=np.inf, 
+                shape=(self.max_obs_dim,), 
+                dtype=np.float32
+            )
+            self.action_space = spaces.Discrete(self.max_action_dim)
+            
+            print(f"Multi-agent wrapper: {len(self.agents)} agents, max obs dim: {self.max_obs_dim}, max action dim: {self.max_action_dim}")
+            print(f"  Agent obs dims: {obs_dims}")
+            print(f"  Agent action dims: {action_dims}")
         
         self.current_agent_idx = 0
         self.episode_rewards = {}
         self.episode_lengths = {}
         
     def reset(self, seed=None, options=None):
-        """Reset the environment and return the first agent's observation."""
+        """Reset the environment and return the first agent's observation (padded to max dimension)."""
         observations, infos = self.pz_env.reset(seed=seed, options=options)
         self.agents = list(self.pz_env.agents)
         self.current_agent_idx = 0
@@ -53,21 +80,26 @@ class PettingZooToGymWrapper(gym.Env):
         self.episode_lengths = {agent: 0 for agent in self.agents}
         
         if self.agents:
-            return observations[self.agents[0]], infos
+            # Get first agent's observation and pad to max dimension
+            first_obs = observations[self.agents[0]]
+            padded_obs = np.pad(first_obs, (0, self.max_obs_dim - len(first_obs)), mode='constant')
+            return padded_obs.astype(np.float32), infos
         return None, infos
     
     def step(self, action):
         """
-        Execute action for current agent, then move to next agent.
-        When all agents have acted, step the PettingZoo environment.
+        Execute action for all agents (parameter sharing), clipping to each agent's valid range.
+        Pad observations to max dimension.
         """
         if not self.agents:
             return None, 0, True, True, {}
         
-        current_agent = self.agents[self.current_agent_idx]
-        
-        # Collect actions for all agents (using same action for parameter sharing)
-        actions = {agent: action for agent in self.agents}
+        # Clip action to each agent's valid action space
+        actions = {}
+        for agent in self.agents:
+            agent_action_dim = self.agent_action_spaces[agent].n
+            clipped_action = min(action, agent_action_dim - 1)
+            actions[agent] = clipped_action
         
         # Step the PettingZoo environment with all actions
         observations, rewards, terminations, truncations, infos = self.pz_env.step(actions)
@@ -90,8 +122,13 @@ class PettingZooToGymWrapper(gym.Env):
         self.current_agent_idx = (self.current_agent_idx + 1) % len(self.agents)
         next_agent = self.agents[self.current_agent_idx]
         
-        # Return next agent's observation (for sequential processing)
-        next_obs = observations.get(next_agent) if not done else None
+        # Get next agent's observation and pad to max dimension
+        if not done and next_agent in observations:
+            next_obs = observations[next_agent]
+            padded_obs = np.pad(next_obs, (0, self.max_obs_dim - len(next_obs)), mode='constant')
+            next_obs = padded_obs.astype(np.float32)
+        else:
+            next_obs = None
         
         # Add aggregate info
         info = infos.get(next_agent, {}) if infos else {}
