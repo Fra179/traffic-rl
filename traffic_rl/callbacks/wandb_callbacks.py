@@ -5,6 +5,8 @@ import wandb
 from stable_baselines3.common.callbacks import BaseCallback
 import traci
 
+from traffic_rl.utils import read_summary_arrived
+
 
 def _arrived_from_sumo_conn(sumo_conn):
     """Prefer ID-list based arrivals; fallback to numeric counter."""
@@ -150,15 +152,25 @@ class ValidationCallback(BaseCallback):
         baseline_metrics: Dictionary of baseline metrics
         eval_freq: How often to run validation (in steps)
         best_model_save_path: Path to save best model (based on throughput)
+        eval_summary_path: SUMO summary XML path used to read cumulative arrived
         verbose: Verbosity level
     """
     
-    def __init__(self, eval_env, baseline_metrics, eval_freq=720, best_model_save_path=None, verbose=0):
+    def __init__(
+        self,
+        eval_env,
+        baseline_metrics,
+        eval_freq=720,
+        best_model_save_path=None,
+        eval_summary_path=None,
+        verbose=0,
+    ):
         super(ValidationCallback, self).__init__(verbose)
         self.eval_env = eval_env
         self.baseline_metrics = baseline_metrics
         self.eval_freq = eval_freq
         self.best_model_save_path = best_model_save_path
+        self.eval_summary_path = eval_summary_path
         self.best_throughput = -np.inf
 
     def _on_step(self) -> bool:
@@ -229,6 +241,10 @@ class ValidationCallback(BaseCallback):
                         total_arrived += _arrived_from_sumo_conn(sumo_conn)
                 except:
                     total_arrived += _arrived_from_global_traci()
+
+            summary_arrived = read_summary_arrived(self.eval_summary_path)
+            if summary_arrived is not None:
+                total_arrived = int(summary_arrived)
 
             mean_wait = float(np.mean(wait_times)) if wait_times else 0.0
             mean_queue = float(np.mean(queues)) if queues else 0.0

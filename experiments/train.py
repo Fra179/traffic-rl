@@ -6,6 +6,7 @@ from stable_baselines3 import DQN, PPO, A2C
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 import sumo_rl
 import os
+import tempfile
 from gymnasium import spaces
 
 from traffic_rl.callbacks import TrafficWandbCallback, ValidationCallback, run_baseline
@@ -443,6 +444,10 @@ def main(args):
     
     # Setup Evaluation Environment (Single separate instance, no GUI)
     print("Creating evaluation environment...")
+    tmp_eval_summary = tempfile.NamedTemporaryFile(prefix="validation_summary_", suffix=".xml", delete=False)
+    eval_summary_path = tmp_eval_summary.name
+    tmp_eval_summary.close()
+    eval_additional_sumo_cmd = f"--summary-output {eval_summary_path}"
     if args.multiagent:
         pz_eval_env = sumo_rl.parallel_env(
             net_file=NET_FILE,
@@ -452,7 +457,8 @@ def main(args):
             add_system_info=True,
             reward_fn=reward_minimize_max_queue,
             observation_class=GridObservationFunction,
-            sumo_seed='42'
+            sumo_seed='42',
+            additional_sumo_cmd=eval_additional_sumo_cmd
         )
         eval_env = PettingZooToGymWrapper(pz_eval_env, warmup_steps=warmup_steps)
     else:
@@ -464,7 +470,8 @@ def main(args):
                             add_system_info=True,
                             reward_fn=reward_minimize_max_queue,
                             observation_class=GridObservationFunction,
-                            sumo_seed='42')
+                            sumo_seed='42',
+                            additional_sumo_cmd=eval_additional_sumo_cmd)
     
     # Optional: Apply normalization
     if args.normalize:
@@ -559,7 +566,8 @@ def main(args):
             eval_env, 
             baseline_metrics, 
             eval_freq=eval_freq_timesteps,
-            best_model_save_path=best_model_path  # Save best based on throughput
+            best_model_save_path=best_model_path,  # Save best based on throughput
+            eval_summary_path=eval_summary_path
         )
     ]
     
@@ -585,6 +593,10 @@ def main(args):
         # Cleanup
         eval_env.close()
         env.close()
+        try:
+            os.unlink(eval_summary_path)
+        except Exception:
+            pass
         wandb.finish()
     
     print("Done.")
