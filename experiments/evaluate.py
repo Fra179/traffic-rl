@@ -10,10 +10,12 @@ import pandas as pd
 from pathlib import Path
 from gymnasium import spaces
 import traci
+import tempfile
 
 from traffic_rl.callbacks import run_baseline
 from traffic_rl.rewards import reward_minimize_queue
 from traffic_rl.observations import GridObservationFunction
+from traffic_rl.utils import read_summary_arrived, read_summary_metrics, read_tripinfo_metrics
 
 os.environ["LIBSUMO_AS_TRACI"] = "1"
 
@@ -189,7 +191,7 @@ def _extract_arrived_now(info, env):
     return 0
 
 
-def evaluate_model(model, env, n_episodes=10, render=False):
+def evaluate_model(model, env, n_episodes=10, render=False, summary_path=None):
     """
     Evaluate a trained model on the environment.
     
@@ -231,6 +233,10 @@ def evaluate_model(model, env, n_episodes=10, render=False):
                 print(f"  [arrival-probe] first-step arrived_now={arrived_now}")
                 arrival_probe_logged = True
         
+        summary_arrived = read_summary_arrived(summary_path)
+        if summary_arrived is not None:
+            episode_arrived = summary_arrived
+
         episode_rewards.append(episode_reward)
         episode_lengths.append(episode_length)
         episode_metrics['total_arrived'].append(episode_arrived)
@@ -292,16 +298,25 @@ def main(args):
         raise ValueError(f"Unknown algorithm: {args.algorithm}")
     
     # Create evaluation environment
+    tmp_summary = tempfile.NamedTemporaryFile(prefix="evaluate_summary_", suffix=".xml", delete=False)
+    summary_path = tmp_summary.name
+    tmp_summary.close()
+    tmp_tripinfo = tempfile.NamedTemporaryFile(prefix="evaluate_tripinfo_", suffix=".xml", delete=False)
+    tripinfo_path = tmp_tripinfo.name
+    tmp_tripinfo.close()
+
     if args.multiagent:
         pz_env = sumo_rl.parallel_env(
             net_file=NET_FILE,
             route_file=ROUTE_FILE,
             use_gui=args.gui,
             num_seconds=args.episode_seconds,
+            delta_time=args.delta_time,
             add_system_info=True,
             reward_fn=reward_minimize_queue,
             observation_class=GridObservationFunction,
-            sumo_seed=args.seed if args.seed else 'random'
+            sumo_seed=args.seed if args.seed else 'random',
+            additional_sumo_cmd=f"--summary-output {summary_path} --tripinfo-output {tripinfo_path}"
         )
         env = ParameterSharingEvalWrapper(pz_env)
     else:
@@ -310,10 +325,12 @@ def main(args):
                        route_file=ROUTE_FILE,
                        use_gui=args.gui,
                        num_seconds=args.episode_seconds,
+                       delta_time=args.delta_time,
                        add_system_info=True,
                        reward_fn=reward_minimize_queue,
                        observation_class=GridObservationFunction,
-                       sumo_seed=args.seed if args.seed else 'random')
+                       sumo_seed=args.seed if args.seed else 'random',
+                       additional_sumo_cmd=f"--summary-output {summary_path} --tripinfo-output {tripinfo_path}")
     
     # Load VecNormalize stats if they exist
     if args.normalize:
@@ -332,7 +349,12 @@ def main(args):
     baseline_metrics = None
     if args.compare_baseline:
         print("\nComputing baseline metrics...")
-        baseline_metrics = run_baseline(NET_FILE, ROUTE_FILE, args.episode_seconds)
+        baseline_metrics = run_baseline(
+            NET_FILE,
+            ROUTE_FILE,
+            args.episode_seconds,
+            delta_time=args.delta_time
+        )
         print(f"Baseline - Mean Waiting Time: {baseline_metrics['mean_waiting_time']:.2f}s")
         print(f"Baseline - Mean Stopped Vehicles: {baseline_metrics['mean_queue_length']:.2f}")
         print(f"Baseline - Mean Speed: {baseline_metrics['mean_speed']:.2f} m/s\n")
@@ -355,8 +377,32 @@ def main(args):
     # Evaluate the model
     print(f"\nEvaluating model for {args.n_episodes} episodes...")
     results, episode_rewards, episode_metrics = evaluate_model(
-        model, env, n_episodes=args.n_episodes, render=args.gui
+        model, env, n_episodes=args.n_episodes, render=args.gui, summary_path=summary_path
     )
+
+    # Ensure SUMO has flushed summary output before using it for throughput.
+    env.close()
+    summary_arrived_final = read_summary_arrived(summary_path)
+    summary_metrics = read_summary_metrics(summary_path)
+    tripinfo_metrics = read_tripinfo_metrics(tripinfo_path)
+    results.update(summary_metrics)
+    results.update(tripinfo_metrics)
+    if summary_arrived_final is not None and args.n_episodes == 1:
+        episode_metrics["total_arrived"] = [summary_arrived_final]
+        results["mean_total_arrived"] = float(summary_arrived_final)
+        if summary_metrics:
+            if episode_metrics["system_mean_waiting_time"]:
+                episode_metrics["system_mean_waiting_time"][0] = summary_metrics.get(
+                    "summary_mean_waiting_time_end", episode_metrics["system_mean_waiting_time"][0]
+                )
+            if episode_metrics["system_mean_speed"]:
+                episode_metrics["system_mean_speed"][0] = summary_metrics.get(
+                    "summary_mean_speed_end", episode_metrics["system_mean_speed"][0]
+                )
+            if episode_metrics["system_total_stopped"]:
+                episode_metrics["system_total_stopped"][0] = summary_metrics.get(
+                    "summary_halting_end", episode_metrics["system_total_stopped"][0]
+                )
     
     # Print results
     print("\n" + "="*60)
@@ -365,6 +411,10 @@ def main(args):
     print(f"Mean Reward: {results['mean_reward']:.2f} ± {results['std_reward']:.2f}")
     print(f"Mean Episode Length: {results['mean_episode_length']:.1f} steps")
     print(f"Mean Total Arrived (throughput): {results['mean_total_arrived']:.2f}")
+    if "summary_total_teleports" in results:
+        print(f"Teleports: {results['summary_total_teleports']}")
+    if "summary_total_collisions" in results:
+        print(f"Collisions: {results['summary_total_collisions']}")
     
     if results['mean_waiting_time'] is not None:
         print(f"\nTraffic Metrics:")
@@ -432,6 +482,8 @@ def main(args):
             'mean_speed': episode_metrics['system_mean_speed'],
             'total_arrived': episode_metrics['total_arrived'],
         })
+        for k, v in {**summary_metrics, **tripinfo_metrics}.items():
+            df[k] = v
         if baseline_metrics:
             df["baseline_total_arrived"] = baseline_metrics["total_arrived"]
             df["throughput_improvement_pct"] = throughput_improvement
@@ -439,7 +491,14 @@ def main(args):
         print(f"Results saved to: {output_path}")
     
     # Cleanup
-    env.close()
+    try:
+        Path(summary_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+    try:
+        Path(tripinfo_path).unlink(missing_ok=True)
+    except Exception:
+        pass
     if args.use_wandb:
         wandb.finish()
 
@@ -475,6 +534,13 @@ if __name__ == "__main__":
         type=int,
         default=3600,
         help="Duration of each episode in seconds"
+    )
+
+    parser.add_argument(
+        "--delta-time",
+        type=int,
+        default=5,
+        help="SUMO control step in seconds (must be > yellow_time; use training value for fair comparison)"
     )
 
     parser.add_argument(

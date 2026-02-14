@@ -2,17 +2,16 @@ import argparse
 import gymnasium as gym
 import numpy as np
 import wandb
-import re
 from stable_baselines3 import DQN, PPO, A2C
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 import sumo_rl
 import os
 from gymnasium import spaces
-import xml.etree.ElementTree as ET
 
 from traffic_rl.callbacks import TrafficWandbCallback, ValidationCallback, run_baseline
 from traffic_rl.rewards import reward_minimize_queue, reward_vidali_waiting_time, reward_minimize_max_queue
 from traffic_rl.observations import GridObservationFunction
+from traffic_rl.utils import detect_route_duration_seconds
 
 os.environ["LIBSUMO_AS_TRACI"] = "1"
 
@@ -263,37 +262,6 @@ ALGORITHM_CONFIGS = {
         }
     }
 }
-
-
-def detect_route_duration_seconds(route_file_path: str):
-    """
-    Detect route duration in seconds from a SUMO route file.
-    Priority:
-    1) "Total Duration: <N>s" comment anywhere in the file
-    2) max(<vehicle depart>) + 1 second fallback
-    """
-    with open(route_file_path, "r", encoding="utf-8") as f:
-        xml_text = f.read()
-
-    match = re.search(r"Total Duration:\s*(\d+)\s*s", xml_text)
-    if match:
-        return int(match.group(1)), "comment"
-
-    root = ET.fromstring(xml_text)
-    max_depart = 0.0
-    for vehicle in root.findall("vehicle"):
-        depart = vehicle.get("depart")
-        if depart is None:
-            continue
-        try:
-            max_depart = max(max_depart, float(depart))
-        except ValueError:
-            continue
-
-    if max_depart > 0:
-        return int(np.ceil(max_depart)) + 1, "max_depart"
-
-    return None, None
 
 
 def main(args):

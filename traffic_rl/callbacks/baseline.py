@@ -3,9 +3,12 @@
 import numpy as np
 import gymnasium as gym
 import sumo_rl
+import tempfile
+from pathlib import Path
+from traffic_rl.utils import read_summary_arrived
 
 
-def run_baseline(net_file, route_file, num_seconds):
+def run_baseline(net_file, route_file, num_seconds, delta_time=1):
     """
     Run a fixed-timing baseline simulation to establish performance metrics.
     
@@ -13,20 +16,27 @@ def run_baseline(net_file, route_file, num_seconds):
         net_file: Path to SUMO network file
         route_file: Path to SUMO route file
         num_seconds: Duration of simulation
+        delta_time: SUMO-RL control step in seconds
         
     Returns:
         dict: Baseline metrics including waiting time, queue length, speed, etc.
     """
     print("Computing Fixed-TS Baseline...")
     
+    tmp_summary = tempfile.NamedTemporaryFile(prefix="baseline_summary_", suffix=".xml", delete=False)
+    tmp_summary_path = tmp_summary.name
+    tmp_summary.close()
+
     # Use fixed_ts=True for baseline
     env = gym.make('sumo-rl-v0',
                    net_file=net_file,
                    route_file=route_file,
                    num_seconds=num_seconds,
+                   delta_time=delta_time,
                    use_gui=False,
                    fixed_ts=True,
-                   sumo_seed='42')  # Fixed seed for consistency
+                   sumo_seed='42',  # Fixed seed for consistency
+                   additional_sumo_cmd=f"--summary-output {tmp_summary_path}")
     
     obs, info = env.reset()
     done = False
@@ -67,6 +77,15 @@ def run_baseline(net_file, route_file, num_seconds):
             pass
     
     env.close()
+
+    # Prefer robust cumulative arrived count from SUMO summary output.
+    parsed_arrived = read_summary_arrived(tmp_summary_path)
+    if parsed_arrived is not None:
+        total_arrived = parsed_arrived
+    try:
+        Path(tmp_summary_path).unlink(missing_ok=True)
+    except Exception:
+        pass
     
     metrics = {
         "mean_waiting_time": np.mean(wait_times),
