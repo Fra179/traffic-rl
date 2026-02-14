@@ -315,7 +315,12 @@ def main(args):
     
     # 0. Compute Baseline First (uses single-agent env for both single and multi-agent training)
     print("Computing baseline metrics...")
-    baseline_metrics = run_baseline(NET_FILE, EVAL_ROUTE_FILE, eval_episode_seconds)
+    baseline_metrics = run_baseline(
+        NET_FILE,
+        EVAL_ROUTE_FILE,
+        eval_episode_seconds,
+        delta_time=5
+    )
     
     print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
     print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")

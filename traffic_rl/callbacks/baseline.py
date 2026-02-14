@@ -8,7 +8,7 @@ from pathlib import Path
 from traffic_rl.utils import read_summary_arrived
 
 
-def run_baseline(net_file, route_file, num_seconds, delta_time=1):
+def run_baseline(net_file, route_file, num_seconds, delta_time=5):
     """
     Run a fixed-timing baseline simulation to establish performance metrics.
     
