@@ -37,7 +37,7 @@ echo ""
 EVAL_ROUTE="$SCENARIO_DIR/$ROUTE_FILE"
 EPISODE_SECONDS=$(grep 'Total Duration:' "$EVAL_ROUTE" | head -1 | sed -n 's/.*Total Duration: \([0-9]*\)s.*/\1/p')
 if [ -z "$EPISODE_SECONDS" ]; then
-    echo "⚠ Warning: Could not auto-detect episode duration from $EVAL_ROUTE, using 3600s"
+    echo "WARNING: Could not auto-detect episode duration from $EVAL_ROUTE, using 3600s"
     EPISODE_SECONDS=3600
 else
     HOURS=$(awk "BEGIN {printf \"%.2f\", $EPISODE_SECONDS/3600}")
@@ -56,7 +56,7 @@ for ALGORITHM in "${ALGORITHMS[@]}"; do
     elif [ -f "$FINAL_MODEL" ]; then
         MODEL_PATH="$FINAL_MODEL"
     else
-        echo "[$(date +%H:%M:%S)] ✗ Skipping ${ALGORITHM^^}: no model found (expected $BEST_MODEL or $FINAL_MODEL)"
+        echo "[$(date +%H:%M:%S)] FAILED: Skipping ${ALGORITHM^^}: no model found (expected $BEST_MODEL or $FINAL_MODEL)"
         continue
     fi
 
@@ -82,9 +82,9 @@ for ALGORITHM in "${ALGORITHMS[@]}"; do
 
     EXIT_CODE=$?
     if [ $EXIT_CODE -ne 0 ]; then
-        echo "[$(date +%H:%M:%S)] ✗ FAILED ${ALGORITHM^^} (exit $EXIT_CODE)"
+        echo "[$(date +%H:%M:%S)] FAILED: ${ALGORITHM^^} (exit $EXIT_CODE)"
     else
-        echo "[$(date +%H:%M:%S)] ✓ Completed ${ALGORITHM^^}"
+        echo "[$(date +%H:%M:%S)] OK: Completed ${ALGORITHM^^}"
     fi
     echo ""
 done

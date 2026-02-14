@@ -53,7 +53,7 @@ def read_summary_arrived(summary_path):
 
 
 def read_summary_metrics(summary_path):
-    """Read robust system metrics from SUMO summary output."""
+    """Read system metrics from SUMO summary output."""
     if not summary_path:
         return {}
     try:

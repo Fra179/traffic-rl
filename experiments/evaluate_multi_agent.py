@@ -289,11 +289,11 @@ def main(args):
     )
     
     if not agent_models_map:
-        print("\n❌ ERROR: No models were loaded. Cannot proceed with evaluation.")
+        print("\nERROR: No models were loaded. Cannot proceed with evaluation.")
         print("Make sure the models exist in the specified directory.")
         return
     
-    print(f"\n✓ Successfully loaded {len(agent_models_map)} models")
+    print(f"\nOK: Successfully loaded {len(agent_models_map)} models")
     print()
     
     # Create PettingZoo parallel environment
@@ -320,11 +320,11 @@ def main(args):
         print("Running baseline with fixed-time traffic lights...")
         try:
             baseline_metrics = run_baseline(NET_FILE, ROUTE_FILE, args.episode_seconds)
-            print(f"✓ Baseline - Waiting Time: {baseline_metrics['mean_waiting_time']:.2f}s")
-            print(f"✓ Baseline - Stopped Vehicles: {baseline_metrics['mean_stopped']:.2f}")
-            print(f"✓ Baseline - Speed: {baseline_metrics['mean_speed']:.2f} m/s")
+            print(f"OK: Baseline - Waiting Time: {baseline_metrics['mean_waiting_time']:.2f}s")
+            print(f"OK: Baseline - Stopped Vehicles: {baseline_metrics['mean_stopped']:.2f}")
+            print(f"OK: Baseline - Speed: {baseline_metrics['mean_speed']:.2f} m/s")
         except Exception as e:
-            print(f"⚠ Warning: Could not compute baseline: {e}")
+            print(f"WARNING: Could not compute baseline: {e}")
             baseline_metrics = None
         print()
     

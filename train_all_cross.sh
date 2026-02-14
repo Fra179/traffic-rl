@@ -48,7 +48,7 @@ train_one() {
     EPISODE_SECONDS=$(get_episode_duration "$TRAIN_ROUTE")
 
     if [ -z "$EPISODE_SECONDS" ]; then
-        echo "[$(date +%H:%M:%S)] ✗ ERROR: Could not detect episode duration from $TRAIN_ROUTE"
+        echo "[$(date +%H:%M:%S)] ERROR: Could not detect episode duration from $TRAIN_ROUTE"
         return 1
     fi
 
@@ -72,10 +72,10 @@ train_one() {
 
     local EXIT_CODE=$?
     if [ $EXIT_CODE -ne 0 ]; then
-        echo "[$(date +%H:%M:%S)] ✗ FAILED: $ALGORITHM (exit code: $EXIT_CODE)"
+        echo "[$(date +%H:%M:%S)] FAILED: $ALGORITHM (exit code: $EXIT_CODE)"
         return 1
     else
-        echo "[$(date +%H:%M:%S)] ✓ Completed: $ALGORITHM"
+        echo "[$(date +%H:%M:%S)] OK: Completed $ALGORITHM"
         return 0
     fi
 }

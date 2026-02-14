@@ -331,7 +331,7 @@ def main(args):
     
     # Warn if not using auto-duration (hyperparams may be mismatched)
     if not args.auto_duration:
-        print(f"\n⚠️  WARNING: Using default episode duration ({episode_seconds}s).")
+        print(f"\nWARNING  WARNING: Using default episode duration ({episode_seconds}s).")
         print(f"   If your route files have different durations, use --auto-duration flag!")
         print(f"   Adaptive hyperparameters are based on this duration.\n")
     

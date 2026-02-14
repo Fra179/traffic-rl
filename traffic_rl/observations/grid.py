@@ -71,7 +71,6 @@ class GridObservationFunction(ObservationFunction):
                 # In SUMO, 0 is start of lane, length is the intersection
                 cell_idx = int(pos / cell_length)
                 
-                # Clip index just in case
                 cell_idx = min(cell_idx, self.num_cells - 1)
                 lane_cells[cell_idx] = 1.0  # Mark occupied
             

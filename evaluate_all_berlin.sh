@@ -32,20 +32,20 @@ for INTERSECTION in A B C D E F G H I J; do
     FINAL_MODEL="weights/berlin_${INTERSECTION}_${ALGORITHM}_${ALGORITHM}_model_final.zip"
     if [ -f "$BEST_MODEL" ] || [ -f "$FINAL_MODEL" ]; then
         MODEL_COUNT=$((MODEL_COUNT + 1))
-        echo "  ✓ Found model for intersection $INTERSECTION"
+        echo "  OK: Found model for intersection $INTERSECTION"
     else
-        echo "  ✗ No model found for intersection $INTERSECTION"
+        echo "  FAILED: No model found for intersection $INTERSECTION"
     fi
 done
 
 echo ""
 if [ $MODEL_COUNT -eq 0 ]; then
-    echo "❌ ERROR: No trained models found!"
+    echo "ERROR: No trained models found!"
     echo "Please train the models first using: ./train_all_berlin.sh"
     exit 1
 fi
 
-echo "✓ Found $MODEL_COUNT/10 trained models"
+echo "OK: Found $MODEL_COUNT/10 trained models"
 echo ""
 
 # Auto-detect episode duration from evaluation route file
@@ -53,7 +53,7 @@ EVAL_ROUTE="scenarios/berlin-small/berlin-small-static-eval.rou.xml"
 EPISODE_SECONDS=$(grep 'Total Duration:' "$EVAL_ROUTE" | head -1 | sed -n 's/.*Total Duration: \([0-9]*\)s.*/\1/p')
 
 if [ -z "$EPISODE_SECONDS" ]; then
-    echo "⚠ Warning: Could not auto-detect episode duration, using default 3600s"
+    echo "WARNING: Could not auto-detect episode duration, using default 3600s"
     EPISODE_SECONDS=3600
 else
     HOURS=$(awk "BEGIN {printf \"%.2f\", $EPISODE_SECONDS/3600}")
@@ -93,13 +93,13 @@ EXIT_CODE=$?
 if [ $EXIT_CODE -eq 0 ]; then
     echo ""
     echo "======================================"
-    echo "✓ Evaluation completed successfully!"
+    echo "OK: Evaluation completed successfully!"
     echo "Results saved to: $OUTPUT_FILE"
     echo "======================================"
 else
     echo ""
     echo "======================================"
-    echo "✗ Evaluation failed (exit code: $EXIT_CODE)"
+    echo "FAILED: Evaluation failed (exit code: $EXIT_CODE)"
     echo "======================================"
     exit $EXIT_CODE
 fi

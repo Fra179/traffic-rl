@@ -270,15 +270,15 @@ def generate_scenarios(net_file: str,
                 segment_veh_count += 1
             
             total_vehicles = veh_id
-            print(f"  ✓ Segment {segment_idx + 1}: {name:25s} | {segment_veh_count:4d} vehicles | "
+            print(f"  OK Segment {segment_idx + 1}: {name:25s} | {segment_veh_count:4d} vehicles | "
                   f"{segment_start:5d}-{segment_end:5d}s")
         
         routes.write('</routes>\n')
     
-    print(f"\n✓ File generated: {output_file}")
-    print(f"✓ Total vehicles: {total_vehicles}")
+    print(f"\nOK File generated: {output_file}")
+    print(f"OK Total vehicles: {total_vehicles}")
     if total_duration > 0:
-        print(f"✓ Average: {total_vehicles * 3600 / total_duration:.0f} veh/h")
+        print(f"OK Average: {total_vehicles * 3600 / total_duration:.0f} veh/h")
     
     return total_vehicles
 
@@ -329,7 +329,7 @@ def create_sumo_config(net_file: str, route_file: str, output_file: str, end_tim
     with open(output_file, 'w') as f:
         f.write(config_content)
     
-    print(f"  ✓ Created config: {Path(output_file).name}")
+    print(f"  OK Created config: {Path(output_file).name}")
 
 
 def generate_for_intersection(intersection_dir: str, 

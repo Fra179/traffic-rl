@@ -78,7 +78,7 @@ def run_baseline(net_file, route_file, num_seconds, delta_time=5):
     
     env.close()
 
-    # Prefer robust cumulative arrived count from SUMO summary output.
+    # Use cumulative arrived count from SUMO summary output when available.
     parsed_arrived = read_summary_arrived(tmp_summary_path)
     if parsed_arrived is not None:
         total_arrived = parsed_arrived
