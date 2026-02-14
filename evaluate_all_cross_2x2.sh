@@ -7,6 +7,9 @@
 #   ./evaluate_all_cross_2x2.sh 20
 #   ./evaluate_all_cross_2x2.sh 10 --gui
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
+
 N_EPISODES=${1:-1}
 EXTRA_ARGS="${@:2}"
 
@@ -21,7 +24,7 @@ ROUTE_FILE="eval_generated.rou.xml"
 
 ALGORITHMS=(a2c ppo dqn)
 
-mkdir -p evaluation_results
+mkdir -p "$SCRIPT_DIR/evaluation_results"
 
 echo "======================================"
 echo "Evaluating CROSS-trained models on GRID2x2"
@@ -57,7 +60,7 @@ for ALGORITHM in "${ALGORITHMS[@]}"; do
         continue
     fi
 
-    OUTPUT_CSV="evaluation_results/cross_to_grid2x2_${ALGORITHM}_$(date +%Y%m%d_%H%M%S).csv"
+    OUTPUT_CSV="$SCRIPT_DIR/evaluation_results/cross_to_grid2x2_${ALGORITHM}_$(date +%Y%m%d_%H%M%S).csv"
 
     echo "[$(date +%H:%M:%S)] Starting ${ALGORITHM^^}"
     echo "  model: $MODEL_PATH"
@@ -68,6 +71,7 @@ for ALGORITHM in "${ALGORITHMS[@]}"; do
         --algorithm "$ALGORITHM" \
         --multiagent \
         --compare-baseline \
+        --delta-time 5 \
         --n-episodes "$N_EPISODES" \
         --episode-seconds "$EPISODE_SECONDS" \
         --scenario-dir "$SCENARIO_DIR" \
@@ -85,4 +89,4 @@ for ALGORITHM in "${ALGORITHMS[@]}"; do
     echo ""
 done
 
-echo "Done. Results in evaluation_results/"
+echo "Done. Results in $SCRIPT_DIR/evaluation_results/"
