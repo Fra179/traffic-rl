@@ -482,9 +482,17 @@ def main(args):
             'mean_speed': episode_metrics['system_mean_speed'],
             'total_arrived': episode_metrics['total_arrived'],
         })
+        # Explicit aggregate evaluation means (repeated per row for convenience).
+        df["eval_mean_waiting_time"] = results.get("mean_waiting_time")
+        df["eval_mean_speed"] = results.get("mean_speed")
+        df["eval_mean_queue_length"] = results.get("mean_total_stopped")
+
         for k, v in {**summary_metrics, **tripinfo_metrics}.items():
             df[k] = v
         if baseline_metrics:
+            df["baseline_mean_waiting_time"] = baseline_metrics.get("mean_waiting_time")
+            df["baseline_mean_speed"] = baseline_metrics.get("mean_speed")
+            df["baseline_mean_queue_length"] = baseline_metrics.get("mean_queue_length")
             df["baseline_total_arrived"] = baseline_metrics["total_arrived"]
             df["throughput_improvement_pct"] = throughput_improvement
         df.to_csv(output_path, index=False)
