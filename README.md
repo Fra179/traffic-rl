@@ -158,25 +158,25 @@ uv run experiments/evaluate.py \
 Train all algorithms on `cross`:
 
 ```bash
-./train_all_cross.sh 50 3
+./train_all_cross.sh 50
 ```
 
 Train all algorithms on Berlin intersections `A-J`:
 
 ```bash
-./train_all_berlin.sh 50 15
+./train_all_berlin.sh 50
 ```
 
 Evaluate heterogeneous Berlin system:
 
 ```bash
-./evaluate_all_berlin.sh ppo 10
+./evaluate_all_berlin.sh ppo
 ```
 
 Evaluate cross-trained models on `grid2x2` transfer setting:
 
 ```bash
-./evaluate_all_cross_2x2.sh 1
+./evaluate_all_cross_2x2.sh
 ```
 
 ## Scenario generation
