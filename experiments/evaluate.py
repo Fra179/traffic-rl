@@ -305,6 +305,10 @@ def main(args):
     tripinfo_path = tmp_tripinfo.name
     tmp_tripinfo.close()
 
+    extra_sumo_cmd = f"--summary-output {summary_path} --tripinfo-output {tripinfo_path}"
+    if args.additional_sumo_cmd:
+        extra_sumo_cmd = f"{extra_sumo_cmd} {args.additional_sumo_cmd}"
+
     if args.multiagent:
         pz_env = sumo_rl.parallel_env(
             net_file=NET_FILE,
@@ -316,7 +320,7 @@ def main(args):
             reward_fn=reward_minimize_queue,
             observation_class=GridObservationFunction,
             sumo_seed=args.seed if args.seed else 'random',
-            additional_sumo_cmd=f"--summary-output {summary_path} --tripinfo-output {tripinfo_path}"
+            additional_sumo_cmd=extra_sumo_cmd
         )
         env = ParameterSharingEvalWrapper(pz_env)
     else:
@@ -330,7 +334,7 @@ def main(args):
                        reward_fn=reward_minimize_queue,
                        observation_class=GridObservationFunction,
                        sumo_seed=args.seed if args.seed else 'random',
-                       additional_sumo_cmd=f"--summary-output {summary_path} --tripinfo-output {tripinfo_path}")
+                       additional_sumo_cmd=extra_sumo_cmd)
     
     # Load VecNormalize stats if they exist
     if args.normalize:
@@ -622,6 +626,13 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Path to save evaluation results as CSV"
+    )
+
+    parser.add_argument(
+        "--additional-sumo-cmd",
+        type=str,
+        default=None,
+        help="Extra SUMO CLI args (e.g. \"--delay 5\")"
     )
     
     args = parser.parse_args()
