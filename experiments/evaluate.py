@@ -8,12 +8,185 @@ import sumo_rl
 import os
 import pandas as pd
 from pathlib import Path
+from gymnasium import spaces
+import traci
 
 from traffic_rl.callbacks import run_baseline
 from traffic_rl.rewards import reward_minimize_queue
 from traffic_rl.observations import GridObservationFunction
 
 os.environ["LIBSUMO_AS_TRACI"] = "1"
+
+
+class ParameterSharingEvalWrapper(gym.Env):
+    """Clone one policy action across all agents in a parallel PettingZoo env."""
+
+    def __init__(self, pz_env):
+        super().__init__()
+        self.pz_env = pz_env
+        self.agents = []
+
+        self.pz_env.reset()
+        if self.pz_env.agents:
+            sample_agent = self.pz_env.agents[0]
+            self.observation_space = self.pz_env.observation_space(sample_agent)
+            self.action_space = self.pz_env.action_space(sample_agent)
+
+    def reset(self, seed=None, options=None):
+        observations, infos = self.pz_env.reset(seed=seed, options=options)
+        self.agents = list(self.pz_env.agents)
+        if self.agents:
+            return observations[self.agents[0]], infos
+        return None, infos
+
+    def step(self, action):
+        if not self.agents:
+            return None, 0, True, True, {}
+
+        actions = {}
+        for agent in self.agents:
+            actions[agent] = self._coerce_action(action, self.pz_env.action_space(agent))
+
+        observations, rewards, terminations, truncations, infos = self.pz_env.step(actions)
+
+        total_reward = sum(rewards.values()) if rewards else 0.0
+        avg_reward = total_reward / len(self.agents) if self.agents else 0.0
+        done = all(terminations.values()) if terminations else True
+        truncated = all(truncations.values()) if truncations else False
+        next_obs = observations.get(self.agents[0]) if not done else None
+        info = infos.get(self.agents[0], {}) if infos else {}
+        try:
+            sumo_conn = self.pz_env.env.sumo if hasattr(self.pz_env, "env") else self.pz_env.sumo
+            arrived_ids = sumo_conn.simulation.getArrivedIDList()
+            info["system_arrived_now"] = len(arrived_ids) if arrived_ids is not None else 0
+        except Exception:
+            pass
+        return next_obs, avg_reward, done, truncated, info
+
+    def close(self):
+        self.pz_env.close()
+
+    @staticmethod
+    def _coerce_action(action, action_space):
+        if isinstance(action_space, spaces.Discrete):
+            if isinstance(action, np.ndarray):
+                if action.size == 0:
+                    return action_space.sample()
+                action = action.reshape(-1)[0]
+            try:
+                value = int(action)
+            except Exception:
+                return action_space.sample()
+            return value if action_space.contains(value) else action_space.sample()
+
+        if isinstance(action_space, spaces.MultiDiscrete):
+            try:
+                arr = np.asarray(action, dtype=np.int64).reshape(action_space.nvec.shape)
+            except Exception:
+                return action_space.sample()
+            return arr if action_space.contains(arr) else action_space.sample()
+
+        if isinstance(action_space, spaces.MultiBinary):
+            try:
+                arr = np.asarray(action, dtype=np.int8).reshape(action_space.shape)
+            except Exception:
+                return action_space.sample()
+            arr = np.clip(arr, 0, 1)
+            return arr if action_space.contains(arr) else action_space.sample()
+
+        if isinstance(action_space, spaces.Box):
+            try:
+                arr = np.asarray(action, dtype=action_space.dtype).reshape(action_space.shape)
+            except Exception:
+                return action_space.sample()
+            arr = np.clip(arr, action_space.low, action_space.high)
+            return arr if action_space.contains(arr) else action_space.sample()
+
+        return action if action_space.contains(action) else action_space.sample()
+
+
+def _arrived_from_sumo_conn(sumo_conn):
+    """Prefer ID-list based arrivals (more reliable in some multi-agent runs)."""
+    try:
+        arrived_ids = sumo_conn.simulation.getArrivedIDList()
+        if arrived_ids is not None:
+            return max(0, int(len(arrived_ids)))
+    except Exception:
+        pass
+    try:
+        return max(0, int(sumo_conn.simulation.getArrivedNumber()))
+    except Exception:
+        return None
+
+
+def _arrived_from_global_traci():
+    """Fallback for cases where env wrappers hide the active TraCI connection."""
+    try:
+        arrived_ids = traci.simulation.getArrivedIDList()
+        if arrived_ids is not None:
+            return max(0, int(len(arrived_ids)))
+    except Exception:
+        pass
+    try:
+        return max(0, int(traci.simulation.getArrivedNumber()))
+    except Exception:
+        return None
+
+
+def _extract_arrived_now(info, env):
+    """Best-effort retrieval of arrivals in the current step."""
+    arrived_now = info.get("system_arrived_now") if isinstance(info, dict) else None
+    if arrived_now is not None:
+        try:
+            arrived_now = max(0, int(arrived_now))
+            if arrived_now > 0:
+                return arrived_now
+        except Exception:
+            pass
+
+    candidates = [env]
+    for attr in ("env", "venv", "unwrapped", "pz_env"):
+        obj = getattr(env, attr, None)
+        if obj is not None:
+            candidates.append(obj)
+    envs = getattr(env, "envs", None)
+    if envs:
+        candidates.extend(envs)
+
+    for obj in candidates:
+        try:
+            if hasattr(obj, "sumo"):
+                value = _arrived_from_sumo_conn(obj.sumo)
+                if value is not None and value > 0:
+                    return value
+            if hasattr(obj, "env") and hasattr(obj.env, "sumo"):
+                value = _arrived_from_sumo_conn(obj.env.sumo)
+                if value is not None and value > 0:
+                    return value
+            if hasattr(obj, "pz_env"):
+                pz_env = obj.pz_env
+                if hasattr(pz_env, "sumo"):
+                    value = _arrived_from_sumo_conn(pz_env.sumo)
+                    if value is not None and value > 0:
+                        return value
+                if hasattr(pz_env, "env") and hasattr(pz_env.env, "sumo"):
+                    value = _arrived_from_sumo_conn(pz_env.env.sumo)
+                    if value is not None and value > 0:
+                        return value
+        except Exception:
+            continue
+
+    # Final fallback: query global traci/libsumo handle directly.
+    direct_value = _arrived_from_global_traci()
+    if direct_value is not None and direct_value > 0:
+        return direct_value
+
+    if arrived_now is not None:
+        try:
+            return max(0, int(arrived_now))
+        except Exception:
+            pass
+    return 0
 
 
 def evaluate_model(model, env, n_episodes=10, render=False):
@@ -34,7 +207,8 @@ def evaluate_model(model, env, n_episodes=10, render=False):
     episode_metrics = {
         'system_mean_waiting_time': [],
         'system_total_stopped': [],
-        'system_mean_speed': []
+        'system_mean_speed': [],
+        'total_arrived': []
     }
     
     for episode in range(n_episodes):
@@ -43,15 +217,23 @@ def evaluate_model(model, env, n_episodes=10, render=False):
         truncated = False
         episode_reward = 0
         episode_length = 0
+        episode_arrived = 0
+        arrival_probe_logged = False
         
         while not (done or truncated):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done, truncated, info = env.step(action)
             episode_reward += reward
             episode_length += 1
+            arrived_now = _extract_arrived_now(info, env)
+            episode_arrived += arrived_now
+            if not arrival_probe_logged and episode_length == 1:
+                print(f"  [arrival-probe] first-step arrived_now={arrived_now}")
+                arrival_probe_logged = True
         
         episode_rewards.append(episode_reward)
         episode_lengths.append(episode_length)
+        episode_metrics['total_arrived'].append(episode_arrived)
         
         # Extract system-level metrics from final info
         if 'system_mean_waiting_time' in info:
@@ -61,7 +243,10 @@ def evaluate_model(model, env, n_episodes=10, render=False):
         if 'system_mean_speed' in info:
             episode_metrics['system_mean_speed'].append(info['system_mean_speed'])
         
-        print(f"Episode {episode + 1}/{n_episodes} - Reward: {episode_reward:.2f}, Length: {episode_length}")
+        print(
+            f"Episode {episode + 1}/{n_episodes} - Reward: {episode_reward:.2f}, "
+            f"Length: {episode_length}, Arrived: {episode_arrived}"
+        )
     
     # Compute statistics
     results = {
@@ -71,14 +256,21 @@ def evaluate_model(model, env, n_episodes=10, render=False):
         'mean_waiting_time': np.mean(episode_metrics['system_mean_waiting_time']) if episode_metrics['system_mean_waiting_time'] else None,
         'mean_total_stopped': np.mean(episode_metrics['system_total_stopped']) if episode_metrics['system_total_stopped'] else None,
         'mean_speed': np.mean(episode_metrics['system_mean_speed']) if episode_metrics['system_mean_speed'] else None,
+        'mean_total_arrived': np.mean(episode_metrics['total_arrived']) if episode_metrics['total_arrived'] else 0.0,
     }
     
     return results, episode_rewards, episode_metrics
 
 
 def main(args):
-    NET_FILE = "scenarios/cross_dynamic/cross_turn.net.xml"
-    ROUTE_FILE = "scenarios/cross_dynamic/eval.rou.xml"
+    if args.scenario_dir:
+        net_name = args.net_file if args.net_file else "net.xml"
+        route_name = args.route_file if args.route_file else "eval.rou.xml"
+        NET_FILE = str(Path(args.scenario_dir) / net_name)
+        ROUTE_FILE = str(Path(args.scenario_dir) / route_name)
+    else:
+        NET_FILE = "scenarios/cross_dynamic/cross_turn.net.xml"
+        ROUTE_FILE = "scenarios/cross_dynamic/eval.rou.xml"
     
     # Check if model file exists
     model_path = Path(args.model_path)
@@ -87,6 +279,7 @@ def main(args):
     
     print(f"Loading model from: {args.model_path}")
     print(f"Algorithm: {args.algorithm.upper()}")
+    print(f"Mode: {'multi-agent parameter sharing' if args.multiagent else 'single-agent'}")
     
     # Load the model
     if args.algorithm == "dqn":
@@ -99,15 +292,28 @@ def main(args):
         raise ValueError(f"Unknown algorithm: {args.algorithm}")
     
     # Create evaluation environment
-    env = gym.make('sumo-rl-v0',
-                   net_file=NET_FILE,
-                   route_file=ROUTE_FILE,
-                   use_gui=args.gui,
-                   num_seconds=args.episode_seconds,
-                   add_system_info=True,
-                   reward_fn=reward_minimize_queue,
-                   observation_class=GridObservationFunction,
-                   sumo_seed=args.seed if args.seed else 'random')
+    if args.multiagent:
+        pz_env = sumo_rl.parallel_env(
+            net_file=NET_FILE,
+            route_file=ROUTE_FILE,
+            use_gui=args.gui,
+            num_seconds=args.episode_seconds,
+            add_system_info=True,
+            reward_fn=reward_minimize_queue,
+            observation_class=GridObservationFunction,
+            sumo_seed=args.seed if args.seed else 'random'
+        )
+        env = ParameterSharingEvalWrapper(pz_env)
+    else:
+        env = gym.make('sumo-rl-v0',
+                       net_file=NET_FILE,
+                       route_file=ROUTE_FILE,
+                       use_gui=args.gui,
+                       num_seconds=args.episode_seconds,
+                       add_system_info=True,
+                       reward_fn=reward_minimize_queue,
+                       observation_class=GridObservationFunction,
+                       sumo_seed=args.seed if args.seed else 'random')
     
     # Load VecNormalize stats if they exist
     if args.normalize:
@@ -128,7 +334,7 @@ def main(args):
         print("\nComputing baseline metrics...")
         baseline_metrics = run_baseline(NET_FILE, ROUTE_FILE, args.episode_seconds)
         print(f"Baseline - Mean Waiting Time: {baseline_metrics['mean_waiting_time']:.2f}s")
-        print(f"Baseline - Mean Stopped Vehicles: {baseline_metrics['mean_stopped']:.2f}")
+        print(f"Baseline - Mean Stopped Vehicles: {baseline_metrics['mean_queue_length']:.2f}")
         print(f"Baseline - Mean Speed: {baseline_metrics['mean_speed']:.2f} m/s\n")
     
     # Initialize Wandb if requested
@@ -158,6 +364,7 @@ def main(args):
     print("="*60)
     print(f"Mean Reward: {results['mean_reward']:.2f} ± {results['std_reward']:.2f}")
     print(f"Mean Episode Length: {results['mean_episode_length']:.1f} steps")
+    print(f"Mean Total Arrived (throughput): {results['mean_total_arrived']:.2f}")
     
     if results['mean_waiting_time'] is not None:
         print(f"\nTraffic Metrics:")
@@ -170,14 +377,17 @@ def main(args):
             print(f"\nComparison with Baseline:")
             waiting_improvement = ((baseline_metrics['mean_waiting_time'] - results['mean_waiting_time']) 
                                    / baseline_metrics['mean_waiting_time'] * 100)
-            stopped_improvement = ((baseline_metrics['mean_stopped'] - results['mean_total_stopped']) 
-                                   / baseline_metrics['mean_stopped'] * 100)
+            stopped_improvement = ((baseline_metrics['mean_queue_length'] - results['mean_total_stopped']) 
+                                   / baseline_metrics['mean_queue_length'] * 100)
             speed_improvement = ((results['mean_speed'] - baseline_metrics['mean_speed']) 
                                 / baseline_metrics['mean_speed'] * 100)
+            throughput_improvement = ((results['mean_total_arrived'] - baseline_metrics['total_arrived'])
+                                     / baseline_metrics['total_arrived'] * 100) if baseline_metrics['total_arrived'] else 0.0
             
             print(f"  Waiting Time: {waiting_improvement:+.1f}%")
             print(f"  Stopped Vehicles: {stopped_improvement:+.1f}%")
             print(f"  Speed: {speed_improvement:+.1f}%")
+            print(f"  Throughput (Arrived): {throughput_improvement:+.1f}%")
     
     print("="*60 + "\n")
     
@@ -194,16 +404,19 @@ def main(args):
                 "eval/mean_waiting_time": results['mean_waiting_time'],
                 "eval/mean_total_stopped": results['mean_total_stopped'],
                 "eval/mean_speed": results['mean_speed'],
+                "eval/mean_total_arrived": results['mean_total_arrived'],
             })
         
         if baseline_metrics:
             wandb_log.update({
                 "eval/baseline_waiting_time": baseline_metrics['mean_waiting_time'],
-                "eval/baseline_stopped": baseline_metrics['mean_stopped'],
+                "eval/baseline_stopped": baseline_metrics['mean_queue_length'],
                 "eval/baseline_speed": baseline_metrics['mean_speed'],
+                "eval/baseline_total_arrived": baseline_metrics['total_arrived'],
                 "eval/waiting_improvement_pct": waiting_improvement,
                 "eval/stopped_improvement_pct": stopped_improvement,
                 "eval/speed_improvement_pct": speed_improvement,
+                "eval/throughput_improvement_pct": throughput_improvement,
             })
         
         wandb.log(wandb_log)
@@ -217,7 +430,11 @@ def main(args):
             'waiting_time': episode_metrics['system_mean_waiting_time'],
             'total_stopped': episode_metrics['system_total_stopped'],
             'mean_speed': episode_metrics['system_mean_speed'],
+            'total_arrived': episode_metrics['total_arrived'],
         })
+        if baseline_metrics:
+            df["baseline_total_arrived"] = baseline_metrics["total_arrived"]
+            df["throughput_improvement_pct"] = throughput_improvement
         df.to_csv(output_path, index=False)
         print(f"Results saved to: {output_path}")
     
@@ -258,6 +475,33 @@ if __name__ == "__main__":
         type=int,
         default=3600,
         help="Duration of each episode in seconds"
+    )
+
+    parser.add_argument(
+        "--scenario-dir",
+        type=str,
+        default=None,
+        help="Scenario directory containing net/route files"
+    )
+
+    parser.add_argument(
+        "--net-file",
+        type=str,
+        default=None,
+        help="Network file name (relative to --scenario-dir)"
+    )
+
+    parser.add_argument(
+        "--route-file",
+        type=str,
+        default=None,
+        help="Route file name (relative to --scenario-dir)"
+    )
+
+    parser.add_argument(
+        "--multiagent",
+        action="store_true",
+        help="Clone one policy action across all traffic lights in a parallel env"
     )
     
     parser.add_argument(

@@ -3,6 +3,34 @@
 import numpy as np
 import wandb
 from stable_baselines3.common.callbacks import BaseCallback
+import traci
+
+
+def _arrived_from_sumo_conn(sumo_conn):
+    """Prefer ID-list based arrivals; fallback to numeric counter."""
+    try:
+        arrived_ids = sumo_conn.simulation.getArrivedIDList()
+        if arrived_ids is not None:
+            return max(0, int(len(arrived_ids)))
+    except Exception:
+        pass
+    try:
+        return max(0, int(sumo_conn.simulation.getArrivedNumber()))
+    except Exception:
+        return 0
+
+
+def _arrived_from_global_traci():
+    try:
+        arrived_ids = traci.simulation.getArrivedIDList()
+        if arrived_ids is not None:
+            return max(0, int(len(arrived_ids)))
+    except Exception:
+        pass
+    try:
+        return max(0, int(traci.simulation.getArrivedNumber()))
+    except Exception:
+        return 0
 
 
 class TrafficWandbCallback(BaseCallback):
@@ -67,9 +95,12 @@ class TrafficWandbCallback(BaseCallback):
                     env_unwrapped = sumo_envs[0].unwrapped
                     sumo_conn = env_unwrapped.sumo
                     total_vehicles = sumo_conn.vehicle.getIDCount()
-                    arrived_now = sumo_conn.simulation.getArrivedNumber()
+                    arrived_now = _arrived_from_sumo_conn(sumo_conn)
             except Exception:
                 pass
+
+        if arrived_now <= 0:
+            arrived_now = _arrived_from_global_traci()
 
         if total_vehicles == 0 and len(infos_all) > 0:
             # Some env variants expose this directly in info; prefer non-zero if available.
@@ -195,9 +226,9 @@ class ValidationCallback(BaseCallback):
                     if info_arrived is not None:
                         total_arrived += int(info_arrived)
                     else:
-                        total_arrived += int(sumo_conn.simulation.getArrivedNumber())
+                        total_arrived += _arrived_from_sumo_conn(sumo_conn)
                 except:
-                    pass
+                    total_arrived += _arrived_from_global_traci()
 
             mean_wait = float(np.mean(wait_times)) if wait_times else 0.0
             mean_queue = float(np.mean(queues)) if queues else 0.0

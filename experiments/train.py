@@ -99,7 +99,8 @@ class PettingZooToGymWrapper(gym.Env):
         try:
             sumo_conn = self.pz_env.env.sumo if hasattr(self.pz_env, "env") else self.pz_env.sumo
             info["system_total_vehicles"] = int(sumo_conn.vehicle.getIDCount())
-            info["system_arrived_now"] = int(sumo_conn.simulation.getArrivedNumber())
+            arrived_ids = sumo_conn.simulation.getArrivedIDList()
+            info["system_arrived_now"] = len(arrived_ids) if arrived_ids is not None else 0
         except Exception:
             pass
         info['total_reward'] = total_reward
@@ -114,7 +115,8 @@ class PettingZooToGymWrapper(gym.Env):
         try:
             sumo_conn = self.pz_env.env.sumo if hasattr(self.pz_env, "env") else self.pz_env.sumo
             total_vehicles = sumo_conn.vehicle.getIDCount()
-            arrived_now = sumo_conn.simulation.getArrivedNumber()
+            arrived_ids = sumo_conn.simulation.getArrivedIDList()
+            arrived_now = len(arrived_ids) if arrived_ids is not None else 0
         except Exception:
             pass
         return {
