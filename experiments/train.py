@@ -209,57 +209,56 @@ class PettingZooToGymWrapper(gym.Env):
 
 
 # Algorithm configurations - base parameters (episode-dependent params set in main())
-# Tuned for fair comparison across algorithms
 ALGORITHM_CONFIGS = {
     "dqn": {
         "class": DQN,
         "base_hyperparams": {
-            "learning_rate": 0.0005,        # Standard for DQN
-            "batch_size": 64,                # Standard batch size
-            "train_freq": 4,                 # Update every 4 steps
-            "gradient_steps": 1,             # 1 gradient step per update
-            "exploration_fraction": 0.3,     # Explore for 30% of training
+            "learning_rate": 0.0005,        
+            "batch_size": 64,                
+            "train_freq": 4,                 
+            "gradient_steps": 1,             
+            "exploration_fraction": 0.3,     
             "exploration_initial_eps": 1.0,
             "exploration_final_eps": 0.05,
-            "gamma": 0.99,                   # Discount factor
+            "gamma": 0.99,                   
         },
-        # Functions to calculate episode-dependent hyperparameters
+        
         "adaptive_hyperparams": lambda steps_per_ep: {
-            "buffer_size": max(50000, steps_per_ep * 10),  # At least 10 episodes
-            "learning_starts": steps_per_ep * 2,            # 2 full episodes before learning
-            "target_update_interval": steps_per_ep // 2,    # Update target every 0.5 episodes
+            "buffer_size": max(50000, steps_per_ep * 10),  
+            "learning_starts": steps_per_ep * 2,            
+            "target_update_interval": steps_per_ep // 2,    
         }
     },
     "ppo": {
         "class": PPO,
         "base_hyperparams": {
-            "learning_rate": 0.0003,         # Standard for PPO
-            "batch_size": 128,               # Minibatch size for updates
-            "n_epochs": 10,                  # 10 passes through collected data
-            "gamma": 0.99,                   # Discount factor
-            "gae_lambda": 0.95,              # GAE parameter for advantage estimation
-            "clip_range": 0.2,               # PPO clipping parameter
-            "ent_coef": 0.01,                # Entropy bonus for exploration
-            "vf_coef": 0.5,                  # Value function coefficient
-            "max_grad_norm": 0.5,            # Gradient clipping
+            "learning_rate": 0.0003,         
+            "batch_size": 128,               
+            "n_epochs": 10,                  
+            "gamma": 0.99,                   
+            "gae_lambda": 0.95,              
+            "clip_range": 0.2,               
+            "ent_coef": 0.01,                
+            "vf_coef": 0.5,                  
+            "max_grad_norm": 0.5,            
         },
         "adaptive_hyperparams": lambda steps_per_ep: {
-            "n_steps": steps_per_ep,         # 1 full episode of varied traffic before update
+            "n_steps": steps_per_ep,         
         }
     },
     "a2c": {
         "class": A2C,
         "base_hyperparams": {
-            "learning_rate": 0.0005,         # Matched to DQN for comparison
-            "gamma": 0.99,                   # Discount factor
-            "gae_lambda": 0.95,              # GAE parameter (match PPO)
-            "ent_coef": 0.01,                # Entropy bonus (match PPO)
-            "vf_coef": 0.5,                  # Value function coefficient
-            "max_grad_norm": 0.5,            # Gradient clipping
-            "normalize_advantage": True,     # Stabilizes training
+            "learning_rate": 0.0005,         
+            "gamma": 0.99,                   
+            "gae_lambda": 0.95,              
+            "ent_coef": 0.01,                
+            "vf_coef": 0.5,                  
+            "max_grad_norm": 0.5,            
+            "normalize_advantage": True,     
         },
         "adaptive_hyperparams": lambda steps_per_ep: {
-            "n_steps": steps_per_ep // 2,    # 0.5 episodes between updates
+            "n_steps": steps_per_ep // 2,    
         }
     }
 }
@@ -268,18 +267,16 @@ ALGORITHM_CONFIGS = {
 def main(args):
     # Setup file paths
     if args.scenario_dir:
-        # Custom scenario directory provided
         BASE_DIR = args.scenario_dir
         NET_FILE = f"{BASE_DIR}/{args.net_file}" if args.net_file else f"{BASE_DIR}/net.xml"
         ROUTE_FILE = f"{BASE_DIR}/{args.train_route_file}" if args.train_route_file else f"{BASE_DIR}/train.rou.xml"
         EVAL_ROUTE_FILE = f"{BASE_DIR}/{args.eval_route_file}" if args.eval_route_file else f"{BASE_DIR}/eval.rou.xml"
     else:
-        # Default to cross_dynamic scenario
         NET_FILE = "scenarios/cross_dynamic/cross.net.xml"
         ROUTE_FILE = "scenarios/cross_dynamic/train.rou.xml"
         EVAL_ROUTE_FILE = "scenarios/cross_dynamic/eval.rou.xml"
     
-    # Validate algorithm choice
+    
     if args.algorithm not in ALGORITHM_CONFIGS:
         raise ValueError(f"Algorithm must be one of {list(ALGORITHM_CONFIGS.keys())}")
     
@@ -314,7 +311,7 @@ def main(args):
         except Exception as e:
             print(f"  Warning: Could not auto-detect duration ({e}), using provided values")
     
-    # 0. Compute Baseline First (uses single-agent env for both single and multi-agent training)
+    
     print("Computing baseline metrics...")
     baseline_metrics = run_baseline(
         NET_FILE,
@@ -326,58 +323,44 @@ def main(args):
     print(f"Training episode length: {episode_seconds}s ({episode_seconds/3600:.2f}h)")
     print(f"Evaluation episode length: {eval_episode_seconds}s ({eval_episode_seconds/3600:.2f}h)")
     
-    # Calculate steps per episode (assuming 5s delta_time)
+    
     STEPS_PER_EPISODE = episode_seconds // 5
     print(f"Steps per episode: {STEPS_PER_EPISODE}")
     
-    # Warn if not using auto-duration (hyperparams may be mismatched)
+    
     if not args.auto_duration:
         print(f"\nWARNING  WARNING: Using default episode duration ({episode_seconds}s).")
         print(f"   If your route files have different durations, use --auto-duration flag!")
         print(f"   Adaptive hyperparameters are based on this duration.\n")
     
-    # Build adaptive hyperparameters based on episode length
+    
     hyperparams = algo_config["base_hyperparams"].copy()
     adaptive_params = algo_config["adaptive_hyperparams"](STEPS_PER_EPISODE)
     hyperparams.update(adaptive_params)
 
-    # Make adaptive params vectorization-aware so update cadence stays reasonable
-    # when num_timesteps is shared across parallel environments.
+    
+    
     if args.n_envs > 1:
         if args.algorithm == "dqn":
-            # Keep replay warmup and buffer sized to the total transitions generated
-            # across all environments.
             hyperparams["buffer_size"] = max(hyperparams["buffer_size"], STEPS_PER_EPISODE * 10 * args.n_envs)
-            # SB3 tracks learning_starts in global timesteps; VecEnv already advances
-            # num_timesteps by n_envs each collector step.
             hyperparams["learning_starts"] = STEPS_PER_EPISODE * 2
-
-            # With VecEnv, each collector step yields n_envs transitions.
-            # Increase gradient_steps to keep a similar update/data ratio.
             hyperparams["train_freq"] = 1
             hyperparams["gradient_steps"] = max(1, args.n_envs // 4)
-            # SB3 applies vector-env compensation when checking target updates, so
-            # keep this in global timestep units (do not multiply by n_envs here).
             hyperparams["target_update_interval"] = max(500, STEPS_PER_EPISODE // 2)
 
         elif args.algorithm in {"ppo", "a2c"}:
-            # Keep rollout size in a practical range:
-            # total_rollout_steps ~= n_steps * n_envs.
+
             target_rollout_steps = min(max(2048, args.n_envs * 64), max(2048, STEPS_PER_EPISODE * 2))
             n_steps_per_env = max(64, target_rollout_steps // args.n_envs)
-            # Do not exceed one episode worth of steps in a single env rollout.
             n_steps_per_env = min(n_steps_per_env, STEPS_PER_EPISODE)
             hyperparams["n_steps"] = int(n_steps_per_env)
 
-    # Keep adaptive choices compatible with the actual training budget for both
-    # single-agent and multi-agent runs (global timesteps in SB3 semantics).
+    
+    
     if args.algorithm == "dqn":
-        # Ensure replay warmup does not consume nearly the whole run.
-        # Keep at least a minimal warmup, but leave room for meaningful updates.
         budget_capped_learning_starts = max(1000, args.total_timesteps // 5)
         hyperparams["learning_starts"] = min(hyperparams["learning_starts"], budget_capped_learning_starts)
 
-        # Keep target updates frequent enough within short runs.
         hyperparams["target_update_interval"] = min(
             hyperparams["target_update_interval"],
             max(250, args.total_timesteps // 4)

@@ -233,7 +233,6 @@ def evaluate_heterogeneous_agents(env, n_episodes=10):
         episode_rewards.append(episode_reward)
         episode_lengths.append(episode_length)
         
-        # Extract system-level metrics from final info
         if 'system_mean_waiting_time' in info:
             episode_metrics['system_mean_waiting_time'].append(info['system_mean_waiting_time'])
         if 'system_total_stopped' in info:
